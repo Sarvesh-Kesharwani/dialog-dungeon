@@ -537,6 +537,7 @@ button {
 }
 
 .list-toolbar button,
+.toolbar-select,
 .view-all {
   display: inline-flex;
   align-items: center;
@@ -550,6 +551,17 @@ button {
   font-size: 14px;
   font-weight: 850;
   box-shadow: 0 5px 12px rgba(74, 60, 123, 0.06);
+}
+
+.toolbar-select select {
+  width: 116px;
+  border: 0;
+  outline: none;
+  appearance: none;
+  background: transparent;
+  color: #252942;
+  font-size: 14px;
+  font-weight: 850;
 }
 
 .mistake-table {
@@ -713,12 +725,158 @@ mark.good {
 }
 
 .star-btn,
-.more-btn {
+.star-btn {
   display: grid;
   place-items: center;
   border: 0;
   background: transparent;
   color: #8790aa;
+}
+
+.star-btn.active {
+  color: var(--orange);
+}
+
+.star-btn.active svg {
+  fill: currentColor;
+}
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.row-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid #e2dcf3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #5c45d6;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.row-actions button.danger {
+  color: #d93450;
+}
+
+.empty-table {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  border: 1px dashed #d9d1f3;
+  border-radius: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-table strong,
+.empty-table span {
+  display: block;
+}
+
+.empty-table strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.empty-table span {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.edit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(22, 18, 46, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.edit-card {
+  width: min(520px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid #e4dcf7;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 22px 70px rgba(52, 38, 112, 0.28);
+}
+
+.edit-head,
+.edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.edit-head h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.edit-head button,
+.edit-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid #e4dcf7;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #28243f;
+  font-weight: 900;
+}
+
+.edit-card label {
+  display: grid;
+  gap: 5px;
+  color: #60657e;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.edit-card input,
+.edit-card select,
+.edit-card textarea {
+  width: 100%;
+  border: 1px solid #e4dcf7;
+  border-radius: 10px;
+  padding: 9px 11px;
+  outline: none;
+  color: #151629;
+  background: #fbfaff;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.edit-card textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+.edit-actions {
+  justify-content: flex-end;
+}
+
+.edit-actions .save-edit {
+  color: #ffffff;
+  border-color: transparent;
+  background: var(--purple);
 }
 
 .summary-bar {
@@ -1315,9 +1473,15 @@ body {
 }
 
 .list-toolbar button,
+.toolbar-select,
 .view-all {
   min-height: 34px;
   padding: 0 12px;
+  font-size: 12px;
+}
+
+.toolbar-select select {
+  width: 96px;
   font-size: 12px;
 }
 
@@ -1329,7 +1493,7 @@ body {
 }
 
 .mistake-row {
-  grid-template-columns: 72px 150px minmax(210px, 1fr) 175px 26px 16px;
+  grid-template-columns: 72px 150px minmax(210px, 1fr) 188px 26px;
   gap: 12px;
   min-height: 104px;
   padding: 10px 12px;
@@ -1379,6 +1543,10 @@ body {
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.38;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .type-chip {
@@ -1450,7 +1618,7 @@ body {
   }
 
   .mistake-row {
-    grid-template-columns: 58px 118px minmax(180px, 1fr) 140px 22px 14px;
+    grid-template-columns: 58px 118px minmax(180px, 1fr) 152px 22px;
     gap: 9px;
     min-height: 98px;
     padding: 8px 10px;

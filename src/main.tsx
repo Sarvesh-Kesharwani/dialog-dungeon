@@ -10,15 +10,19 @@ import {
   Flame,
   Home,
   MessageCircle,
-  MoreVertical,
+  Pencil,
   Play,
+  RotateCcw,
+  Save,
   Send,
   Settings,
   SlidersHorizontal,
   Sparkles,
   Star,
+  Trash2,
   Trophy,
-  Video
+  Video,
+  X
 } from "lucide-react";
 import "./styles.css";
 
@@ -47,6 +51,7 @@ type Mistake = {
   sourceParagraph: string;
   userTranslation: string;
   createdAt: string;
+  favorite?: boolean;
 };
 
 type ReviewResult = {
@@ -116,7 +121,8 @@ const seedMistakes: Mistake[] = [
     scene: "Ranchoddas Speech",
     sourceParagraph: "Apni khushi aur passion ko follow karo.",
     userTranslation: "We should follow our passion.",
-    createdAt: "Today, 10:35 AM"
+    createdAt: "Today, 10:35 AM",
+    favorite: true
   },
   {
     id: "seed-3",
@@ -251,6 +257,20 @@ function App() {
     }
   }
 
+  function updateMistake(updated: Mistake) {
+    setMistakes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+  }
+
+  function deleteMistake(id: string) {
+    setMistakes((current) => current.filter((item) => item.id !== id));
+  }
+
+  function toggleFavorite(id: string) {
+    setMistakes((current) =>
+      current.map((item) => (item.id === id ? { ...item, favorite: !item.favorite } : item))
+    );
+  }
+
   return (
     <main className="app-shell">
       <TopBar page={page} onPageChange={setPage} stats={stats} />
@@ -277,6 +297,9 @@ function App() {
             onTabChange={setActiveTab}
             mistakes={mistakes}
             stats={stats}
+            onUpdateMistake={updateMistake}
+            onDeleteMistake={deleteMistake}
+            onToggleFavorite={toggleFavorite}
           />
         </section>
       ) : (
@@ -505,14 +528,48 @@ function LearningPanel({
   activeTab,
   onTabChange,
   mistakes,
-  stats
+  stats,
+  onUpdateMistake,
+  onDeleteMistake,
+  onToggleFavorite
 }: {
   activeTab: MistakeType;
   onTabChange: (tab: MistakeType) => void;
   mistakes: Mistake[];
   stats: { total: number; byType: { type: MistakeType; count: number }[] };
+  onUpdateMistake: (item: Mistake) => void;
+  onDeleteMistake: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
 }) {
-  const visible = mistakes.length ? mistakes.slice(0, 6) : seedMistakes;
+  const [movieFilter, setMovieFilter] = React.useState("All Movies");
+  const [sortOrder, setSortOrder] = React.useState<"newest" | "oldest" | "favorites">("newest");
+  const [showAll, setShowAll] = React.useState(false);
+  const [editing, setEditing] = React.useState<Mistake | null>(null);
+  const movieOptions = React.useMemo(
+    () => ["All Movies", ...Array.from(new Set(mistakes.map((item) => item.movie)))],
+    [mistakes]
+  );
+
+  const visible = React.useMemo(() => {
+    const filtered = mistakes
+      .filter((item) => showAll || item.type === activeTab)
+      .filter((item) => movieFilter === "All Movies" || item.movie === movieFilter)
+      .filter((item) => sortOrder !== "favorites" || item.favorite);
+
+    return [...filtered]
+      .sort((a, b) => {
+        if (sortOrder === "oldest") return a.id.localeCompare(b.id);
+        if (sortOrder === "favorites") return Number(b.favorite) - Number(a.favorite);
+        return b.id.localeCompare(a.id);
+      })
+      .slice(0, 4);
+  }, [activeTab, mistakes, movieFilter, showAll, sortOrder]);
+
+  function resetView() {
+    setShowAll(true);
+    setMovieFilter("All Movies");
+    setSortOrder("newest");
+  }
 
   return (
     <section className="panel learning-panel">
@@ -523,7 +580,10 @@ function LearningPanel({
             role="tab"
             aria-selected={activeTab === tab}
             className={activeTab === tab ? "active" : ""}
-            onClick={() => onTabChange(tab)}
+            onClick={() => {
+              setShowAll(false);
+              onTabChange(tab);
+            }}
           >
             <TabIcon type={tab} />
             {tabLabels[tab]}
@@ -534,23 +594,52 @@ function LearningPanel({
       <div className="list-toolbar">
         <p>Your saved mistakes and better ways to say things.</p>
         <div>
-          <button>
+          <label className="toolbar-select">
             <SlidersHorizontal size={18} />
-            All Movies
+            <select
+              aria-label="Filter movies"
+              value={movieFilter}
+              onChange={(event) => setMovieFilter(event.target.value)}
+            >
+              {movieOptions.map((movie) => (
+                <option key={movie}>{movie}</option>
+              ))}
+            </select>
             <ChevronDown size={16} />
-          </button>
-          <button>
+          </label>
+          <label className="toolbar-select">
             <BarChart3 size={18} />
-            Newest First
+            <select
+              aria-label="Sort mistakes"
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest" | "favorites")}
+            >
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="favorites">Favorites</option>
+            </select>
             <ChevronDown size={16} />
-          </button>
+          </label>
         </div>
       </div>
 
       <div className="mistake-table">
-        {visible.map((item) => (
-          <MistakeRow key={item.id} item={item} />
-        ))}
+        {visible.length ? (
+          visible.map((item) => (
+            <MistakeRow
+              key={item.id}
+              item={item}
+              onEdit={() => setEditing(item)}
+              onDelete={() => onDeleteMistake(item.id)}
+              onToggleFavorite={() => onToggleFavorite(item.id)}
+            />
+          ))
+        ) : (
+          <div className="empty-table">
+            <strong>No saved items here.</strong>
+            <span>Use View All or review another translation.</span>
+          </div>
+        )}
       </div>
 
       <div className="summary-bar">
@@ -565,10 +654,21 @@ function LearningPanel({
             <strong>{[56, 34, 12, 14, 12][index] + item.count}</strong>
           </div>
         ))}
-        <button className="view-all">
-          View All <ChevronDown size={16} />
+        <button className="view-all" onClick={resetView}>
+          <RotateCcw size={14} /> View All
         </button>
       </div>
+
+      {editing ? (
+        <EditMistakeDialog
+          item={editing}
+          onClose={() => setEditing(null)}
+          onSave={(updated) => {
+            onUpdateMistake(updated);
+            setEditing(null);
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -581,7 +681,17 @@ function TabIcon({ type }: { type: MistakeType }) {
   return <Settings size={20} />;
 }
 
-function MistakeRow({ item }: { item: Mistake }) {
+function MistakeRow({
+  item,
+  onEdit,
+  onDelete,
+  onToggleFavorite
+}: {
+  item: Mistake;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleFavorite: () => void;
+}) {
   return (
     <article className="mistake-row">
       <PosterTile movie={item.movie} />
@@ -599,14 +709,94 @@ function MistakeRow({ item }: { item: Mistake }) {
       <div className="row-note">
         <span className={`type-chip ${typeColors[item.type]}`}>{item.label || item.type}</span>
         <p>{item.why}</p>
+        <div className="row-actions">
+          <button onClick={onEdit}>
+            <Pencil size={13} /> Edit
+          </button>
+          <button className="danger" onClick={onDelete}>
+            <Trash2 size={13} /> Delete
+          </button>
+        </div>
       </div>
-      <button className="star-btn" aria-label="Save favorite">
+      <button
+        className={`star-btn ${item.favorite ? "active" : ""}`}
+        onClick={onToggleFavorite}
+        aria-label={item.favorite ? "Remove favorite" : "Save favorite"}
+      >
         <Star size={20} />
       </button>
-      <button className="more-btn" aria-label="More actions">
-        <MoreVertical size={20} />
-      </button>
     </article>
+  );
+}
+
+function EditMistakeDialog({
+  item,
+  onSave,
+  onClose
+}: {
+  item: Mistake;
+  onSave: (item: Mistake) => void;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = React.useState(item);
+
+  function update<K extends keyof Mistake>(key: K, value: Mistake[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  return (
+    <div className="edit-backdrop" role="dialog" aria-modal="true" aria-label="Edit mistake">
+      <form
+        className="edit-card"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSave(draft);
+        }}
+      >
+        <div className="edit-head">
+          <h3>Edit mistake</h3>
+          <button type="button" onClick={onClose} aria-label="Close editor">
+            <X size={18} />
+          </button>
+        </div>
+
+        <label>
+          Category
+          <select value={draft.type} onChange={(event) => update("type", event.target.value as MistakeType)}>
+            {tabs.map((tab) => (
+              <option key={tab} value={tab}>
+                {tabLabels[tab]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Label
+          <input value={draft.label} onChange={(event) => update("label", event.target.value)} />
+        </label>
+        <label>
+          Your sentence
+          <textarea value={draft.userText} onChange={(event) => update("userText", event.target.value)} />
+        </label>
+        <label>
+          Better sentence
+          <textarea value={draft.suggestion} onChange={(event) => update("suggestion", event.target.value)} />
+        </label>
+        <label>
+          Why
+          <textarea value={draft.why} onChange={(event) => update("why", event.target.value)} />
+        </label>
+
+        <div className="edit-actions">
+          <button type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="save-edit">
+            <Save size={15} /> Save
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
