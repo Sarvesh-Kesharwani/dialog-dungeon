@@ -1,0 +1,17 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="DialogDungeon logo">
+  <rect x="10" y="10" width="140" height="140" rx="38" fill="url(#bg)"/>
+  <path d="M42 92V63C42 52.5 50.5 44 61 44H99C109.5 44 118 52.5 118 63V92C118 102.5 109.5 111 99 111H78L60 125V111C50 110.5 42 102.2 42 92Z" fill="white" fill-opacity=".95"/>
+  <path d="M56 93V69C56 64.6 59.6 61 64 61H96C100.4 61 104 64.6 104 69V93" stroke="#11141C" stroke-width="8" stroke-linecap="round"/>
+  <path d="M66 93V79H76V93" stroke="#11141C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M84 93V79H94V93" stroke="#11141C" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M55 95H105" stroke="#11141C" stroke-width="8" stroke-linecap="round"/>
+  <path d="M67 47L80 31L93 47" stroke="#FFAD36" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M50 38L39 28M110 38L121 28M39 129L51 118M121 129L109 118" stroke="white" stroke-opacity=".55" stroke-width="7" stroke-linecap="round"/>
+  <defs>
+    <linearGradient id="bg" x1="28" y1="26" x2="138" y2="136" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#716DFF"/>
+      <stop offset=".5" stop-color="#2098F3"/>
+      <stop offset="1" stop-color="#FFAD36"/>
+    </linearGradient>
+  </defs>
+</svg>
