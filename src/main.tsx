@@ -445,7 +445,7 @@ function ChatPanel(props: {
           text={
             props.review
               ? `${props.review.overall} I saved the issues on the right.`
-              : "Great! Now I'll review your translation and highlight areas to improve. Type your English translation above and press Enter to submit."
+              : "Great! Translation review ready."
           }
           time="10:35 AM"
         />
