@@ -13,12 +13,16 @@ import {
   Home,
   Languages,
   Link,
+  ListFilter,
   Loader2,
+  Maximize2,
+  Pause,
   Play,
   Plus,
   Save,
   Send,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Trash2,
@@ -76,23 +80,45 @@ type SavedDialogue = {
   createdAt: string;
 };
 
+type DialogueFilterResult = {
+  id: string;
+  videoId: string;
+  videoTitle: string;
+  videoUrl?: string;
+  prompt: string;
+  transcriptSignature: string;
+  includedIds: string[];
+  filteredDialogues: TranscriptSegment[];
+  reason?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type DailyScore = {
   date: string;
   attempted: number;
   totalScore: number;
 };
 
+type AiProvider = "youlearn" | "deepseek";
+
 type AppState = {
   videos: SpaceVideo[];
   savedDialogues: SavedDialogue[];
+  dialogueFilters: DialogueFilterResult[];
   scores: DailyScore[];
   folders: Folder[];
   prompt: string;
+  dialogueFilterPrompt?: string;
+  aiProvider?: AiProvider;
   updatedAt: string;
 };
 
 const defaultPrompt =
   "Explain this movie dialogue in Hinglish, then give a natural English version. Keep it short and learner friendly.";
+const defaultDialogueFilterPrompt =
+  "Include only dialogues that are useful for English learning: meaningful spoken lines, idioms, emotional intent, legal/social phrases, or natural conversation. Exclude filler, repeated fragments, single-word reactions, names, timestamps, and transcription noise.";
+const defaultAiProvider: AiProvider = "youlearn";
 
 const defaultFolders: Folder[] = [{ id: "root", name: "All Dialogues", source: "local" }];
 
@@ -141,6 +167,10 @@ function getClientId() {
   return id;
 }
 
+function normalizeAiProvider(value: unknown): AiProvider {
+  return value === "deepseek" ? "deepseek" : defaultAiProvider;
+}
+
 function App() {
   const [page, setPage] = React.useState<Page>("home");
   const [navCollapsed, setNavCollapsed] = React.useState(false);
@@ -150,8 +180,15 @@ function App() {
   const [savedDialogues, setSavedDialogues] = React.useState<SavedDialogue[]>(() =>
     readJson("dialogdungeon-dialogues", [])
   );
+  const [dialogueFilters, setDialogueFilters] = React.useState<DialogueFilterResult[]>(() =>
+    readJson("dialogdungeon-dialogue-filters", [])
+  );
   const [scores, setScores] = React.useState<DailyScore[]>(() => readJson("dialogdungeon-scores", []));
   const [prompt, setPrompt] = React.useState(() => localStorage.getItem("dialogdungeon-prompt") || defaultPrompt);
+  const [dialogueFilterPrompt, setDialogueFilterPrompt] = React.useState(
+    () => localStorage.getItem("dialogdungeon-dialogue-filter-prompt") || defaultDialogueFilterPrompt
+  );
+  const [aiProvider, setAiProvider] = React.useState<AiProvider>(() => normalizeAiProvider(localStorage.getItem("dialogdungeon-ai-provider")));
   const [syncStatus, setSyncStatus] = React.useState("Local");
   const cloudLoaded = React.useRef(false);
 
@@ -159,9 +196,12 @@ function App() {
     localStorage.setItem("dialogdungeon-videos", JSON.stringify(videos));
     localStorage.setItem("dialogdungeon-folders", JSON.stringify(folders));
     localStorage.setItem("dialogdungeon-dialogues", JSON.stringify(savedDialogues));
+    localStorage.setItem("dialogdungeon-dialogue-filters", JSON.stringify(dialogueFilters));
     localStorage.setItem("dialogdungeon-scores", JSON.stringify(scores));
     localStorage.setItem("dialogdungeon-prompt", prompt);
-  }, [videos, folders, savedDialogues, scores, prompt]);
+    localStorage.setItem("dialogdungeon-dialogue-filter-prompt", dialogueFilterPrompt);
+    localStorage.setItem("dialogdungeon-ai-provider", aiProvider);
+  }, [videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, aiProvider]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -174,8 +214,11 @@ function App() {
           setVideos((current) => mergeVideos(current, cloud.videos ?? []));
           setFolders((current) => mergeFolders(current, cloud.folders ?? []));
           setSavedDialogues((current) => mergeById(current, cloud.savedDialogues ?? []));
+          setDialogueFilters((current) => mergeDialogueFilters(current, cloud.dialogueFilters ?? []));
           setScores((current) => mergeScores(current, cloud.scores ?? []));
           if (cloud.prompt) setPrompt(cloud.prompt);
+          if (cloud.dialogueFilterPrompt) setDialogueFilterPrompt(cloud.dialogueFilterPrompt);
+          if (cloud.aiProvider) setAiProvider(normalizeAiProvider(cloud.aiProvider));
         }
         setSyncStatus(data?.source === "supabase" ? "Synced" : "Local");
         cloudLoaded.current = true;
@@ -198,8 +241,11 @@ function App() {
         videos,
         folders,
         savedDialogues,
+        dialogueFilters,
         scores,
         prompt,
+        dialogueFilterPrompt,
+        aiProvider,
         updatedAt: new Date().toISOString()
       };
       fetch("/api/sync", {
@@ -212,7 +258,7 @@ function App() {
         .catch(() => setSyncStatus("Local"));
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [clientId, videos, folders, savedDialogues, scores, prompt]);
+  }, [aiProvider, clientId, videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt]);
 
   function saveDialogue(video: SpaceVideo, segment: TranscriptSegment) {
     const exists = savedDialogues.some(
@@ -285,11 +331,16 @@ function App() {
               setVideos={setVideos}
               setFolders={setFolders}
               savedDialogues={savedDialogues}
+              dialogueFilters={dialogueFilters}
+              setDialogueFilters={setDialogueFilters}
+              dialogueFilterPrompt={dialogueFilterPrompt}
+              setDialogueFilterPrompt={setDialogueFilterPrompt}
               onSaveDialogue={saveDialogue}
+              aiProvider={aiProvider}
             />
           ) : null}
           {page === "practice" ? (
-            <PracticePage savedDialogues={savedDialogues} onRecord={recordPractice} videos={videos} prompt={prompt} />
+            <PracticePage savedDialogues={savedDialogues} onRecord={recordPractice} videos={videos} prompt={prompt} aiProvider={aiProvider} />
           ) : null}
           {page === "graph" ? (
             <GraphPage
@@ -298,6 +349,7 @@ function App() {
               scores={scores}
               onUpdateDialogue={updateDialogue}
               onDeleteDialogue={deleteDialogue}
+              aiProvider={aiProvider}
             />
           ) : null}
           {page === "settings" ? (
@@ -309,6 +361,8 @@ function App() {
               prompt={prompt}
               setPrompt={setPrompt}
               onUpdateDialogue={updateDialogue}
+              aiProvider={aiProvider}
+              setAiProvider={setAiProvider}
             />
           ) : null}
         </section>
@@ -465,19 +519,37 @@ function WatchPage({
   setVideos,
   setFolders,
   savedDialogues,
-  onSaveDialogue
+  dialogueFilters,
+  setDialogueFilters,
+  dialogueFilterPrompt,
+  setDialogueFilterPrompt,
+  onSaveDialogue,
+  aiProvider
 }: {
   videos: SpaceVideo[];
   folders: Folder[];
   setVideos: React.Dispatch<React.SetStateAction<SpaceVideo[]>>;
   setFolders: React.Dispatch<React.SetStateAction<Folder[]>>;
   savedDialogues: SavedDialogue[];
+  dialogueFilters: DialogueFilterResult[];
+  setDialogueFilters: React.Dispatch<React.SetStateAction<DialogueFilterResult[]>>;
+  dialogueFilterPrompt: string;
+  setDialogueFilterPrompt: (prompt: string) => void;
   onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => void;
+  aiProvider: AiProvider;
 }) {
   const [activeVideoId, setActiveVideoId] = React.useState(videos[0]?.id ?? "");
   const [selectedFolder, setSelectedFolder] = React.useState("all");
   const [currentTime, setCurrentTime] = React.useState(0);
   const [playbackStatus, setPlaybackStatus] = React.useState("");
+  const [isPaused, setIsPaused] = React.useState(true);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+  const [dialogueTranslation, setDialogueTranslation] = React.useState<{ segmentId: string; text: string } | null>(null);
+  const [translationLoading, setTranslationLoading] = React.useState(false);
+  const [filteredDialogueIds, setFilteredDialogueIds] = React.useState<Set<string> | null>(null);
+  const [filterLoading, setFilterLoading] = React.useState(false);
+  const [filterStatus, setFilterStatus] = React.useState("");
+  const playerFrameRef = React.useRef<HTMLDivElement | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const lineRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -490,6 +562,12 @@ function WatchPage({
       .reverse()
       .find((segment) => segment.startTime <= currentTime) ?? activeVideo.transcript[0];
   const isYouTube = isYouTubeUrl(activeVideo.contentUrl);
+  const transcriptSignature = buildTranscriptSignature(activeVideo.transcript);
+  const filterCacheId = buildDialogueFilterId(activeVideo.id, transcriptSignature, dialogueFilterPrompt);
+  const visibleTranscript = filteredDialogueIds
+    ? activeVideo.transcript.filter((segment) => filteredDialogueIds.has(segment.id))
+    : activeVideo.transcript;
+  const isDialogueFilterActive = Boolean(filteredDialogueIds);
 
   React.useEffect(() => {
     if (!activeVideoId && videos[0]) setActiveVideoId(videos[0].id);
@@ -508,7 +586,37 @@ function WatchPage({
       videoRef.current.volume = 1;
     }
     setPlaybackStatus("");
+    setIsPaused(true);
+    setDialogueTranslation(null);
+    setFilteredDialogueIds(null);
+    setFilterStatus("");
   }, [activeVideo.id]);
+
+  React.useEffect(() => {
+    setDialogueTranslation(null);
+  }, [activeSegment?.id]);
+
+  React.useEffect(() => {
+    function syncFullscreenState() {
+      setIsFullscreen(document.fullscreenElement === playerFrameRef.current);
+    }
+
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    return () => document.removeEventListener("fullscreenchange", syncFullscreenState);
+  }, []);
+
+  React.useEffect(() => {
+    function toggleWithSpace(event: KeyboardEvent) {
+      if (event.code !== "Space" || isYouTube || !activeVideo.contentUrl) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
+      event.preventDefault();
+      toggleVideoPlayback();
+    }
+
+    window.addEventListener("keydown", toggleWithSpace);
+    return () => window.removeEventListener("keydown", toggleWithSpace);
+  }, [activeVideo.contentUrl, isYouTube]);
 
   function renameVideo(video: SpaceVideo) {
     const next = window.prompt("Rename video", video.title)?.trim();
@@ -546,6 +654,7 @@ function WatchPage({
     player.volume = 1;
     try {
       await player.play();
+      setIsPaused(false);
       setPlaybackStatus("Sound on. Video playing.");
     } catch (error) {
       setPlaybackStatus(error instanceof Error ? error.message : "Use the video controls to start playback.");
@@ -561,6 +670,128 @@ function WatchPage({
           : video
       )
     );
+  }
+
+  async function toggleVideoPlayback() {
+    if (!videoRef.current) return;
+    const player = videoRef.current;
+    player.muted = false;
+    player.defaultMuted = false;
+    player.volume = 1;
+    try {
+      if (player.paused || player.ended) {
+        await player.play();
+      } else {
+        player.pause();
+      }
+    } catch (error) {
+      setPlaybackStatus(error instanceof Error ? error.message : "Use the video controls to start playback.");
+    }
+  }
+
+  async function toggleFullscreen() {
+    const frame = playerFrameRef.current;
+    if (!frame) return;
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await frame.requestFullscreen();
+      }
+    } catch (error) {
+      setPlaybackStatus(error instanceof Error ? error.message : "Fullscreen is not available.");
+    }
+  }
+
+  async function translatePausedDialogue() {
+    if (!activeSegment || translationLoading) return;
+    if (dialogueTranslation?.segmentId === activeSegment.id) return;
+    setTranslationLoading(true);
+    try {
+      const response = await fetch("/api/dialogue-transform", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogue: activeSegment.text,
+          mode: "Hinglish",
+          prompt: "Give the Hinglish meaning of this dialogue in one short learner-friendly line.",
+          provider: aiProvider
+        })
+      });
+      const data = await response.json();
+      setDialogueTranslation({
+        segmentId: activeSegment.id,
+        text: data.hinglish || data.result || toHinglishHint(activeSegment.text)
+      });
+    } catch {
+      setDialogueTranslation({
+        segmentId: activeSegment.id,
+        text: toHinglishHint(activeSegment.text)
+      });
+    } finally {
+      setTranslationLoading(false);
+    }
+  }
+
+  async function toggleDialogueFilter() {
+    if (filteredDialogueIds) {
+      setFilteredDialogueIds(null);
+      setFilterStatus("");
+      return;
+    }
+
+    setFilterLoading(true);
+    setFilterStatus("Filtering dialogues...");
+    try {
+      const cachedFilter = dialogueFilters.find((filter) => filter.id === filterCacheId);
+      if (cachedFilter) {
+        setFilteredDialogueIds(new Set(cachedFilter.includedIds));
+        setFilterStatus(`Loaded saved filter: ${cachedFilter.includedIds.length} line${cachedFilter.includedIds.length === 1 ? "" : "s"}.`);
+        return;
+      }
+
+      const response = await fetch("/api/dialogue-filter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: dialogueFilterPrompt,
+          transcript: activeVideo.transcript,
+          provider: aiProvider
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Dialogue filter failed");
+      const includedIds = Array.isArray(data.includedIds) ? data.includedIds.map(String) : [];
+      const now = new Date().toISOString();
+      const filterResult: DialogueFilterResult = {
+        id: filterCacheId,
+        videoId: activeVideo.id,
+        videoTitle: activeVideo.title,
+        videoUrl: activeVideo.contentUrl,
+        prompt: dialogueFilterPrompt,
+        transcriptSignature,
+        includedIds,
+        filteredDialogues: activeVideo.transcript.filter((segment) => includedIds.includes(segment.id)),
+        reason: typeof data.reason === "string" ? data.reason : "",
+        createdAt: now,
+        updatedAt: now
+      };
+      setDialogueFilters((current) => mergeDialogueFilters(current, [filterResult]));
+      setFilteredDialogueIds(new Set(includedIds));
+      setFilterStatus(`Saved filter: showing ${includedIds.length} line${includedIds.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setFilterStatus(error instanceof Error ? error.message : "Dialogue filter failed.");
+    } finally {
+      setFilterLoading(false);
+    }
+  }
+
+  function changeDialogueFilterPrompt() {
+    const next = window.prompt("Filter prompt", dialogueFilterPrompt)?.trim();
+    if (!next) return;
+    setDialogueFilterPrompt(next);
+    setFilteredDialogueIds(null);
+    setFilterStatus("Prompt updated. Run the filter again.");
   }
 
   return (
@@ -609,52 +840,93 @@ function WatchPage({
       </section>
 
       <section className="player-card">
-        {activeVideo.contentUrl ? (
-          isYouTube ? (
-            <iframe
-              title={activeVideo.title}
-              src={youtubeEmbedUrl(activeVideo.contentUrl)}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
+        <div className={`player-frame ${isPaused ? "is-paused" : ""}`} ref={playerFrameRef}>
+          {activeVideo.contentUrl ? (
+            isYouTube ? (
+              <iframe
+                title={activeVideo.title}
+                src={youtubeEmbedUrl(activeVideo.contentUrl)}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <video
+                ref={videoRef}
+                src={activeVideo.contentUrl}
+                controls
+                playsInline
+                preload="metadata"
+                poster={activeVideo.thumbnailUrl}
+                onClick={() => {
+                  toggleVideoPlayback();
+                }}
+                onLoadedMetadata={(event) => {
+                  if (activeVideo.lastPosition) event.currentTarget.currentTime = activeVideo.lastPosition;
+                  event.currentTarget.volume = 1;
+                  event.currentTarget.muted = false;
+                  event.currentTarget.defaultMuted = false;
+                  setIsPaused(event.currentTarget.paused);
+                }}
+                onCanPlay={() => setPlaybackStatus("Ready with sound.")}
+                onPlay={(event) => {
+                  event.currentTarget.muted = false;
+                  event.currentTarget.defaultMuted = false;
+                  event.currentTarget.volume = 1;
+                  setIsPaused(false);
+                  setPlaybackStatus("Playing with sound on.");
+                }}
+                onPause={() => setIsPaused(true)}
+                onEnded={() => setIsPaused(true)}
+                onError={(event) => {
+                  const message = event.currentTarget.error?.message || "Video failed to load.";
+                  setPlaybackStatus(message);
+                }}
+                onTimeUpdate={(event) => markWatched(event.currentTarget.currentTime)}
+              />
+            )
           ) : (
-            <video
-              ref={videoRef}
-              src={activeVideo.contentUrl}
-              controls
-              playsInline
-              preload="metadata"
-              poster={activeVideo.thumbnailUrl}
-              onLoadedMetadata={(event) => {
-                if (activeVideo.lastPosition) event.currentTarget.currentTime = activeVideo.lastPosition;
-                event.currentTarget.volume = 1;
-                event.currentTarget.muted = false;
-                event.currentTarget.defaultMuted = false;
-              }}
-              onCanPlay={() => setPlaybackStatus("Ready with sound.")}
-              onPlay={(event) => {
-                event.currentTarget.muted = false;
-                event.currentTarget.defaultMuted = false;
-                event.currentTarget.volume = 1;
-                setPlaybackStatus("Playing with sound on.");
-              }}
-              onError={(event) => {
-                const message = event.currentTarget.error?.message || "Video failed to load.";
-                setPlaybackStatus(message);
-              }}
-              onTimeUpdate={(event) => markWatched(event.currentTarget.currentTime)}
-            />
-          )
-        ) : (
-          <div className="video-placeholder">
-            <Play size={42} />
-            <strong>{activeVideo.title}</strong>
-            <span>Import a YouLearn space for playable video.</span>
+            <div className="video-placeholder">
+              <Play size={42} />
+              <strong>{activeVideo.title}</strong>
+              <span>Import a YouLearn space for playable video.</span>
+            </div>
+          )}
+          {activeSegment ? (
+            <div className="video-dialogue-overlay">
+              {isPaused && !isYouTube ? (
+                <button
+                  className="paused-dialogue-button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    translatePausedDialogue();
+                  }}
+                  disabled={translationLoading}
+                >
+                  <span className="dialogue-original">{activeSegment.text}</span>
+                  {dialogueTranslation?.segmentId === activeSegment.id ? (
+                    <span className="dialogue-translation">{dialogueTranslation.text}</span>
+                  ) : (
+                    <small>{translationLoading ? "Translating..." : "Click for Hinglish meaning"}</small>
+                  )}
+                </button>
+              ) : (
+                <p>{activeSegment.text}</p>
+              )}
+            </div>
+          ) : null}
+          <div className="player-overlay-actions">
+            {!isYouTube && activeVideo.contentUrl ? (
+              <button onClick={toggleVideoPlayback} title={isPaused ? "Play video" : "Pause video"} aria-label={isPaused ? "Play video" : "Pause video"}>
+                {isPaused ? <Play size={16} /> : <Pause size={16} />}
+              </button>
+            ) : null}
+            <button onClick={toggleFullscreen} title={isFullscreen ? "Exit fullscreen" : "Fullscreen"} aria-label={isFullscreen ? "Exit fullscreen" : "Fullscreen"}>
+              <Maximize2 size={16} />
+            </button>
           </div>
-        )}
+        </div>
         <div className="subtitle-card">
           <Volume2 size={22} />
-          <p>{activeSegment?.text ?? "Transcript line appears here while video plays."}</p>
           {!isYouTube && activeVideo.contentUrl ? (
             <button onClick={enableVideoAudio}>
               <Volume2 size={16} /> Sound On
@@ -668,12 +940,27 @@ function WatchPage({
       </section>
 
       <section className="transcript-card">
-        <div className="section-head">
+        <div className="section-head dialogue-head">
           <h2>Dialogues</h2>
-          <span>{activeVideo.transcript.length} lines</span>
+          <div className="dialogue-tools">
+            <button
+              className={isDialogueFilterActive ? "active" : ""}
+              onClick={toggleDialogueFilter}
+              disabled={filterLoading || !activeVideo.transcript.length}
+              title={isDialogueFilterActive ? "Show all dialogues" : "Show only prompt-filtered dialogues"}
+              aria-label={isDialogueFilterActive ? "Show all dialogues" : "Show only prompt-filtered dialogues"}
+            >
+              {filterLoading ? <Loader2 className="spin" size={15} /> : <ListFilter size={15} />}
+            </button>
+            <button onClick={changeDialogueFilterPrompt} title="Change filter prompt" aria-label="Change filter prompt">
+              <SlidersHorizontal size={15} />
+            </button>
+          </div>
+          <span>{visibleTranscript.length} line{visibleTranscript.length === 1 ? "" : "s"}</span>
         </div>
+        {filterStatus ? <small className="dialogue-filter-status">{filterStatus}</small> : null}
         <div className="transcript-list">
-          {activeVideo.transcript.map((segment) => (
+          {visibleTranscript.map((segment) => (
             <button
               key={segment.id}
               ref={(element) => {
@@ -689,6 +976,12 @@ function WatchPage({
               <span>{segment.text}</span>
             </button>
           ))}
+          {!visibleTranscript.length ? (
+            <div className="empty-dialogue-filter">
+              <ListFilter size={24} />
+              <span>No lines matched this prompt.</span>
+            </div>
+          ) : null}
         </div>
         <div className="saved-mini">
           <strong>{savedDialogues.filter((item) => item.videoId === activeVideo.id).length}</strong>
@@ -706,7 +999,9 @@ function SettingsPage({
   savedDialogues,
   prompt,
   setPrompt,
-  onUpdateDialogue
+  onUpdateDialogue,
+  aiProvider,
+  setAiProvider
 }: {
   videos: SpaceVideo[];
   setVideos: React.Dispatch<React.SetStateAction<SpaceVideo[]>>;
@@ -715,6 +1010,8 @@ function SettingsPage({
   prompt: string;
   setPrompt: (prompt: string) => void;
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
+  aiProvider: AiProvider;
+  setAiProvider: (provider: AiProvider) => void;
 }) {
   const [spaceUrl, setSpaceUrl] = React.useState("https://app.youlearn.ai/space/c9241bc0721046c8");
   const [loading, setLoading] = React.useState(false);
@@ -769,7 +1066,7 @@ function SettingsPage({
       const response = await fetch("/api/dialogue-transform", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dialogue: dialogue.text, prompt, mode })
+        body: JSON.stringify({ dialogue: dialogue.text, prompt, mode, provider: aiProvider })
       });
       const data = await response.json();
       onUpdateDialogue({
@@ -802,7 +1099,23 @@ function SettingsPage({
       </section>
       <section className="settings-card">
         <h1>Settings</h1>
-        <p>SRT transcript overrides and prompt tools live here.</p>
+        <p>SRT transcript overrides, prompt tools, and AI provider controls live here.</p>
+        <div className="ai-mode-card">
+          <span>AI mode</span>
+          <div className="ai-mode-toggle" role="group" aria-label="AI mode">
+            <button className={aiProvider === "youlearn" ? "active" : ""} onClick={() => setAiProvider("youlearn")}>
+              YouLearn
+            </button>
+            <button className={aiProvider === "deepseek" ? "active" : ""} onClick={() => setAiProvider("deepseek")}>
+              DeepSeek
+            </button>
+          </div>
+          <small>
+            {aiProvider === "deepseek"
+              ? "All AI actions use DeepSeek where available."
+              : "Library AI uses YouLearn chat; other tutor checks use DeepSeek."}
+          </small>
+        </div>
       </section>
       <section className="settings-card">
         <h2>Custom transcript</h2>
@@ -863,12 +1176,14 @@ function PracticePage({
   savedDialogues,
   onRecord,
   videos,
-  prompt
+  prompt,
+  aiProvider
 }: {
   savedDialogues: SavedDialogue[];
   onRecord: (score: number, dialogue: SavedDialogue) => void;
   videos: SpaceVideo[];
   prompt: string;
+  aiProvider: AiProvider;
 }) {
   const [testSet, setTestSet] = React.useState<SavedDialogue[]>(() => buildDailySet(savedDialogues));
   const [index, setIndex] = React.useState(0);
@@ -893,7 +1208,7 @@ function PracticePage({
       const response = await fetch("/api/practice-grade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dialogue: active.text, answer, prompt })
+        body: JSON.stringify({ dialogue: active.text, answer, prompt, provider: aiProvider })
       });
       const data = await response.json();
       const score = Number(data.score ?? 0);
@@ -970,13 +1285,15 @@ function GraphPage({
   savedDialogues,
   scores,
   onUpdateDialogue,
-  onDeleteDialogue
+  onDeleteDialogue,
+  aiProvider
 }: {
   videos: SpaceVideo[];
   savedDialogues: SavedDialogue[];
   scores: DailyScore[];
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
   onDeleteDialogue: (id: string) => void;
+  aiProvider: AiProvider;
 }) {
   const [editingId, setEditingId] = React.useState("");
   const [draftText, setDraftText] = React.useState("");
@@ -1018,7 +1335,7 @@ function GraphPage({
     const video = videos.find((item) => item.id === dialogue.videoId);
     setSelectedId(dialogue.id);
     setChatLoadingId(dialogue.id);
-    setLibraryStatus("Asking YouLearn chat...");
+    setLibraryStatus(aiProvider === "deepseek" ? "Asking DeepSeek..." : "Asking YouLearn chat...");
     try {
       const response = await fetch("/api/youlearn-chat", {
         method: "POST",
@@ -1030,7 +1347,8 @@ function GraphPage({
           contentId: dialogue.videoId,
           spaceId: extractYoulearnSpaceId(video?.folderId),
           startTime: dialogue.startTime,
-          transcript: video?.transcript ?? []
+          transcript: video?.transcript ?? [],
+          provider: aiProvider
         })
       });
       const data = await response.json();
@@ -1040,7 +1358,7 @@ function GraphPage({
         promptResult: data.result || data.hinglish || "Fetched from YouLearn.",
         hinglish: data.hinglish || data.result || dialogue.hinglish
       });
-      setLibraryStatus("Hinglish fetched from YouLearn.");
+      setLibraryStatus(aiProvider === "deepseek" ? "Hinglish fetched from DeepSeek." : "Hinglish fetched from YouLearn.");
     } catch (error) {
       setLibraryStatus(error instanceof Error ? error.message : "YouLearn chat failed.");
     } finally {
@@ -1232,6 +1550,17 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
   return Array.from(map.values());
 }
 
+function mergeDialogueFilters(current: DialogueFilterResult[], incoming: DialogueFilterResult[]) {
+  const map = new Map(current.map((filter) => [filter.id, filter]));
+  for (const filter of incoming) {
+    const existing = map.get(filter.id);
+    if (!existing || String(filter.updatedAt || "") >= String(existing.updatedAt || "")) {
+      map.set(filter.id, filter);
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+}
+
 function mergeScores(current: DailyScore[], incoming: DailyScore[]) {
   const map = new Map(current.map((score) => [score.date, score]));
   for (const score of incoming) {
@@ -1319,6 +1648,23 @@ function formatTime(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function buildTranscriptSignature(transcript: TranscriptSegment[]) {
+  const source = transcript.map((segment) => `${segment.id}:${segment.startTime}:${segment.text}`).join("|");
+  return hashString(source || "empty");
+}
+
+function buildDialogueFilterId(videoId: string, transcriptSignature: string, prompt: string) {
+  return `filter-${hashString([videoId, transcriptSignature, prompt.trim().toLowerCase()].join("|"))}`;
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function toHinglishHint(text: string) {

@@ -159,11 +159,55 @@ export async function getDialogueTransformPayload(body = {}) {
   }
 }
 
+export async function getDialogueFilterPayload(body = {}) {
+  const prompt = String(body.prompt || "").trim();
+  const transcript = normalizeFilterTranscript(body.transcript);
+
+  if (!transcript.length) {
+    return { status: 400, body: { error: "transcript is required" } };
+  }
+
+  try {
+    const data = await callDeepSeekJson(
+      [
+        "You are filtering movie transcript lines for an English-learning app.",
+        "Only include lines that satisfy the user's filter prompt.",
+        `Filter prompt: ${prompt || "Include meaningful dialogue lines. Exclude filler/noise."}`,
+        "Transcript lines:",
+        JSON.stringify(transcript.map(({ id, startTime, text }) => ({ id, startTime, text })).slice(0, 220)),
+        "Return JSON only with keys: includedIds, reason.",
+        "includedIds must be an array of ids copied exactly from the transcript. Do not return text."
+      ].join("\n"),
+      1200
+    );
+
+    const validIds = new Set(transcript.map((segment) => segment.id));
+    const includedIds = Array.isArray(data?.includedIds)
+      ? data.includedIds.map(String).filter((id) => validIds.has(id))
+      : [];
+
+    return {
+      status: 200,
+      body: {
+        includedIds,
+        reason: String(data?.reason || "")
+      }
+    };
+  } catch (error) {
+    console.error("Dialogue filter failed", error);
+    return {
+      status: 200,
+      body: fallbackDialogueFilter(transcript, prompt)
+    };
+  }
+}
+
 export async function getYoulearnChatPayload(body = {}) {
-  const { dialogue, videoTitle, contentId, videoId, spaceId, startTime, transcript = [] } = body;
+  const { dialogue, videoTitle, contentId, videoId, spaceId, startTime, transcript = [], provider } = body;
   const selectedDialogue = String(dialogue || "").trim();
   const selectedContentId = String(contentId || videoId || "").trim();
   const selectedSpaceId = String(spaceId || process.env.YOULEARN_SPACE_ID || "").trim();
+  const deepseekMode = normalizeProvider(provider) === "deepseek";
 
   if (!selectedDialogue) {
     return { status: 400, body: { error: "dialogue is required" } };
@@ -182,28 +226,30 @@ export async function getYoulearnChatPayload(body = {}) {
       .filter(Boolean)
       .join("\n");
 
-    const answer = await askYoulearnChat({
-      query,
-      contentId: selectedContentId,
-      spaceId: selectedSpaceId
-    });
+    const answer = deepseekMode
+      ? await askDeepSeekText(query)
+      : await askYoulearnChat({
+          query,
+          contentId: selectedContentId,
+          spaceId: selectedSpaceId
+        });
 
     return {
       status: 200,
       body: {
         result: answer,
         hinglish: answer,
-        notes: "Fetched from YouLearn chat.",
-        source: "youlearn"
+        notes: deepseekMode ? "Fetched from DeepSeek mode." : "Fetched from YouLearn chat.",
+        source: deepseekMode ? "deepseek" : "youlearn"
       }
     };
   } catch (error) {
-    console.error("YouLearn chat failed", error);
+    console.error(deepseekMode ? "DeepSeek dialogue failed" : "YouLearn chat failed", error);
     return {
       status: 502,
       body: {
-        error: error instanceof Error ? error.message : "YouLearn chat failed",
-        source: "youlearn"
+        error: error instanceof Error ? error.message : deepseekMode ? "DeepSeek dialogue failed" : "YouLearn chat failed",
+        source: deepseekMode ? "deepseek" : "youlearn"
       }
     };
   }
@@ -332,6 +378,22 @@ async function callDeepSeekJson(prompt, maxTokens) {
     throw new Error("DeepSeek returned empty content");
   }
   return JSON.parse(content);
+}
+
+async function askDeepSeekText(prompt) {
+  const data = await callDeepSeekJson(
+    [
+      prompt,
+      "Return JSON only with keys: result, hinglish, notes.",
+      "result should be the final concise answer."
+    ].join("\n"),
+    900
+  );
+  return String(data?.hinglish || data?.result || data?.notes || "").trim();
+}
+
+function normalizeProvider(value) {
+  return value === "deepseek" ? "deepseek" : "youlearn";
 }
 
 async function askYoulearnChat({ query, contentId, spaceId }) {
@@ -529,6 +591,47 @@ function fallbackDialogueTransform(dialogue, mode) {
     english,
     hinglish,
     notes: "Fallback used because DeepSeek is not configured."
+  };
+}
+
+function normalizeFilterTranscript(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((segment, index) => ({
+      id: String(segment?.id || `line-${index}`),
+      startTime: Number(segment?.startTime || 0),
+      text: String(segment?.text || "").trim()
+    }))
+    .filter((segment) => segment.id && segment.text);
+}
+
+function fallbackDialogueFilter(transcript, prompt) {
+  const promptText = String(prompt || "").toLowerCase();
+  const wantsShort = /\b(short|small|tiny|brief|one[-\s]?word)\b/.test(promptText);
+  const wantsQuestion = /\b(question|questions|ask|asking)\b/.test(promptText);
+  const wantsEmotion = /\b(emotion|emotional|angry|sad|happy|fear|sorry|please)\b/.test(promptText);
+  const wantsLegal = /\b(legal|court|crime|police|case|bail|evidence|judge|law)\b/.test(promptText);
+  const fillerWords = new Set(["ok", "okay", "yes", "no", "yeah", "hmm", "uh", "um", "please", "sorry"]);
+
+  const includedIds = transcript
+    .filter((segment) => {
+      const text = segment.text.trim();
+      const lower = text.toLowerCase();
+      const words = lower.match(/[a-z0-9']+/g) || [];
+      const uniqueWords = new Set(words);
+      const hasSubstance = words.length >= 3 && uniqueWords.size >= Math.min(words.length, 3);
+      if (wantsShort && words.length > 4) return false;
+      if (wantsQuestion && !text.includes("?")) return false;
+      if (wantsEmotion && !/(sorry|please|love|hate|afraid|angry|happy|sad|witnessed|hope|need)/i.test(text)) return false;
+      if (wantsLegal && !/(case|rape|murder|stabbing|crime|bail|evidence|court|police|law|report|witness)/i.test(text)) return false;
+      if (words.length <= 2 && words.every((word) => fillerWords.has(word))) return false;
+      return hasSubstance || wantsShort || wantsQuestion || wantsEmotion || wantsLegal;
+    })
+    .map((segment) => segment.id);
+
+  return {
+    includedIds,
+    reason: "Fallback filter used because AI filtering is not configured."
   };
 }
 

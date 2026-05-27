@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  getDialogueFilterPayload,
   getDialogueTransformPayload,
   getPracticeGradePayload,
   getReviewPayload,
@@ -41,6 +42,11 @@ app.get("/api/youlearn-space", async (req, res) => {
 
 app.post("/api/dialogue-transform", async (req, res) => {
   const result = await getDialogueTransformPayload(req.body);
+  res.status(result.status).json(result.body);
+});
+
+app.post("/api/dialogue-filter", async (req, res) => {
+  const result = await getDialogueFilterPayload(req.body);
   res.status(result.status).json(result.body);
 });
 
