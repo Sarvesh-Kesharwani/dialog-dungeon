@@ -9,6 +9,7 @@ import {
   getReviewPayload,
   getScenePayload,
   getSyncPayload,
+  getYoulearnChatPayload,
   saveSyncPayload,
   getYoulearnSpacePayload
 } from "./learning.mjs";
@@ -40,6 +41,11 @@ app.get("/api/youlearn-space", async (req, res) => {
 
 app.post("/api/dialogue-transform", async (req, res) => {
   const result = await getDialogueTransformPayload(req.body);
+  res.status(result.status).json(result.body);
+});
+
+app.post("/api/youlearn-chat", async (req, res) => {
+  const result = await getYoulearnChatPayload(req.body);
   res.status(result.status).json(result.body);
 });
 

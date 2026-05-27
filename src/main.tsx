@@ -272,8 +272,8 @@ function App() {
   return (
     <main className={`duo-app ${navCollapsed ? "nav-collapsed" : ""}`}>
       <SideNav page={page} onPage={setPage} collapsed={navCollapsed} onToggleCollapsed={() => setNavCollapsed((value) => !value)} />
-      <section className="duo-main">
-        <TopHeader stats={stats} syncStatus={syncStatus} />
+      <section className={`duo-main ${page === "settings" ? "has-header" : ""}`}>
+        {page === "settings" ? <TopHeader stats={stats} syncStatus={syncStatus} /> : null}
         <section className="page-shell">
           {page === "home" ? (
             <HomePage videos={videos} savedDialogues={savedDialogues} todayScore={todayScore} onPage={setPage} />
@@ -981,6 +981,8 @@ function GraphPage({
   const [editingId, setEditingId] = React.useState("");
   const [draftText, setDraftText] = React.useState("");
   const [selectedId, setSelectedId] = React.useState(savedDialogues[0]?.id ?? "");
+  const [chatLoadingId, setChatLoadingId] = React.useState("");
+  const [libraryStatus, setLibraryStatus] = React.useState("");
   const previewRef = React.useRef<HTMLVideoElement | null>(null);
   const buckets = [1, 2, 3, 4, 5].map((bucket) => ({
     bucket,
@@ -1011,6 +1013,40 @@ function GraphPage({
     previewRef.current.defaultMuted = false;
     previewRef.current.volume = 1;
   }, [clipStart, previewUrl]);
+
+  async function fetchHinglish(dialogue: SavedDialogue) {
+    const video = videos.find((item) => item.id === dialogue.videoId);
+    setSelectedId(dialogue.id);
+    setChatLoadingId(dialogue.id);
+    setLibraryStatus("Asking YouLearn chat...");
+    try {
+      const response = await fetch("/api/youlearn-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dialogue: dialogue.text,
+          videoTitle: dialogue.videoTitle,
+          videoId: dialogue.videoId,
+          contentId: dialogue.videoId,
+          spaceId: extractYoulearnSpaceId(video?.folderId),
+          startTime: dialogue.startTime,
+          transcript: video?.transcript ?? []
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "YouLearn chat failed");
+      onUpdateDialogue({
+        ...dialogue,
+        promptResult: data.result || data.hinglish || "Fetched from YouLearn.",
+        hinglish: data.hinglish || data.result || dialogue.hinglish
+      });
+      setLibraryStatus("Hinglish fetched from YouLearn.");
+    } catch (error) {
+      setLibraryStatus(error instanceof Error ? error.message : "YouLearn chat failed.");
+    } finally {
+      setChatLoadingId("");
+    }
+  }
 
   return (
     <div className="progress-grid">
@@ -1046,6 +1082,18 @@ function GraphPage({
                 {dialogue.hinglish || dialogue.english ? <span>{dialogue.hinglish || dialogue.english}</span> : null}
               </div>
               <div className="row-actions">
+                <button
+                  className="ai-action"
+                  title="Fetch Hinglish from YouLearn"
+                  aria-label="Fetch Hinglish from YouLearn"
+                  disabled={chatLoadingId === dialogue.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    fetchHinglish(dialogue);
+                  }}
+                >
+                  {chatLoadingId === dialogue.id ? <Loader2 className="spin" size={14} /> : <Languages size={14} />}
+                </button>
                 {editingId === dialogue.id ? (
                   <button
                     onClick={(event) => {
@@ -1080,6 +1128,7 @@ function GraphPage({
             </div>
           ))}
         </div>
+        {libraryStatus ? <span className="library-status">{libraryStatus}</span> : null}
       </section>
       <section className="progress-card">
         <h2>Source clip</h2>
@@ -1208,6 +1257,11 @@ function normalizeImportedVideos(spaceId: string, rawVideos: SpaceVideo[]) {
     folderId: video.folderId ? `yl-${spaceId}-${video.folderId}` : `yl-${spaceId}-root`,
     folderName: video.folderName || "YouLearn Import"
   }));
+}
+
+function extractYoulearnSpaceId(folderId?: string) {
+  const match = String(folderId || "").match(/^yl-([A-Za-z0-9_]+)(?:-|$)/);
+  return match?.[1] ?? "";
 }
 
 function parseSrt(input: string): TranscriptSegment[] {

@@ -201,12 +201,16 @@ button {
 
 .duo-main {
   display: grid;
-  grid-template-rows: 74px 1fr;
+  grid-template-rows: 1fr;
   gap: 14px;
   min-width: 0;
   min-height: 0;
   padding: 18px;
   overflow: hidden;
+}
+
+.duo-main.has-header {
+  grid-template-rows: 74px 1fr;
 }
 
 .top-header {
@@ -1250,24 +1254,42 @@ button {
 
 .row-actions {
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .row-actions button {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   color: #ffffff;
   background: var(--duo-blue);
-  border-bottom: 4px solid #1889bd;
+  border-bottom: 3px solid #1889bd;
+}
+
+.row-actions button:disabled {
+  cursor: wait;
+  opacity: 0.8;
+}
+
+.row-actions button.ai-action {
+  background: var(--duo-green);
+  border-bottom-color: var(--duo-green-dark);
 }
 
 .row-actions button.danger {
   background: var(--duo-red);
   border-bottom-color: #d63b3b;
+}
+
+.library-status {
+  display: block;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .library-preview {

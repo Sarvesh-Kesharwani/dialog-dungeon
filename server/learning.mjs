@@ -159,6 +159,56 @@ export async function getDialogueTransformPayload(body = {}) {
   }
 }
 
+export async function getYoulearnChatPayload(body = {}) {
+  const { dialogue, videoTitle, contentId, videoId, spaceId, startTime, transcript = [] } = body;
+  const selectedDialogue = String(dialogue || "").trim();
+  const selectedContentId = String(contentId || videoId || "").trim();
+  const selectedSpaceId = String(spaceId || process.env.YOULEARN_SPACE_ID || "").trim();
+
+  if (!selectedDialogue) {
+    return { status: 400, body: { error: "dialogue is required" } };
+  }
+
+  try {
+    const query = [
+      "Use the current YouLearn video/content context.",
+      "Translate this dialogue into natural Hinglish for a Hindi speaker learning English.",
+      "Also give one short meaning note. Keep answer concise.",
+      videoTitle ? `Video: ${videoTitle}` : "",
+      Number.isFinite(Number(startTime)) ? `Timestamp: ${formatClock(Number(startTime))}` : "",
+      `Dialogue: ${selectedDialogue}`,
+      buildTranscriptContext(transcript, Number(startTime))
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const answer = await askYoulearnChat({
+      query,
+      contentId: selectedContentId,
+      spaceId: selectedSpaceId
+    });
+
+    return {
+      status: 200,
+      body: {
+        result: answer,
+        hinglish: answer,
+        notes: "Fetched from YouLearn chat.",
+        source: "youlearn"
+      }
+    };
+  } catch (error) {
+    console.error("YouLearn chat failed", error);
+    return {
+      status: 502,
+      body: {
+        error: error instanceof Error ? error.message : "YouLearn chat failed",
+        source: "youlearn"
+      }
+    };
+  }
+}
+
 export async function getPracticeGradePayload(body = {}) {
   const { dialogue, answer, prompt } = body;
   if (!dialogue || !answer) {
@@ -282,6 +332,133 @@ async function callDeepSeekJson(prompt, maxTokens) {
     throw new Error("DeepSeek returned empty content");
   }
   return JSON.parse(content);
+}
+
+async function askYoulearnChat({ query, contentId, spaceId }) {
+  const cookie = process.env.YOULEARN_AUTH_COOKIE || process.env.YOULEARN_COOKIE || "";
+  const userId = process.env.YOULEARN_USER_ID || "anonymous";
+  const conversationId = await createYoulearnConversation({ userId, contentId, spaceId, cookie });
+  const response = await fetch("https://api.youlearn.ai/generation/chat", {
+    method: "POST",
+    headers: youlearnChatHeaders(cookie),
+    body: JSON.stringify({
+      user_id: userId,
+      space_id: spaceId || undefined,
+      conversation_id: conversationId,
+      content_id: contentId || undefined,
+      query,
+      agent: false,
+      web_search: false,
+      use_advanced_search: false
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (response.status === 401) {
+      throw new Error("YouLearn chat needs signed-in session. Add YOULEARN_AUTH_COOKIE and YOULEARN_USER_ID, or allow fallback first.");
+    }
+    throw new Error(`YouLearn chat ${response.status}: ${text.slice(0, 500)}`);
+  }
+
+  return readYoulearnChatStream(await response.text());
+}
+
+async function createYoulearnConversation({ userId, contentId, spaceId, cookie }) {
+  const response = await fetch("https://api.youlearn.ai/generation/chat/conversations", {
+    method: "POST",
+    headers: youlearnChatHeaders(cookie),
+    body: JSON.stringify({
+      user_id: userId,
+      content_id: contentId || undefined,
+      space_id: spaceId || undefined
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    if (response.status === 401) {
+      throw new Error("YouLearn chat needs signed-in session. Add YOULEARN_AUTH_COOKIE and YOULEARN_USER_ID, or allow fallback first.");
+    }
+    throw new Error(`YouLearn conversation ${response.status}: ${text.slice(0, 500)}`);
+  }
+
+  const payload = await response.json();
+  const conversationId =
+    payload?.conversation?._id ||
+    payload?.conversation?.id ||
+    payload?._id ||
+    payload?.id ||
+    payload?.conversation_id;
+
+  if (!conversationId) {
+    throw new Error("YouLearn did not return a conversation id.");
+  }
+
+  return String(conversationId);
+}
+
+function youlearnChatHeaders(cookie) {
+  return {
+    Accept: "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+    Origin: "https://app.youlearn.ai",
+    Referer: "https://app.youlearn.ai/",
+    "x-platform": "web",
+    "User-Agent": "DialogDungeon/0.2 local learning app",
+    ...(cookie ? { Cookie: cookie } : {})
+  };
+}
+
+function readYoulearnChatStream(text) {
+  const chunks = [];
+  for (const part of splitJsonStream(text)) {
+    if (!part || part.type === "error") continue;
+    const value = String(part.delta || part.content || part.message || "");
+    if (value && value !== "done") chunks.push(value);
+  }
+  const answer = chunks.join("").trim();
+  if (!answer) throw new Error("YouLearn returned empty chat response.");
+  return answer;
+}
+
+function splitJsonStream(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) return [];
+  try {
+    return [JSON.parse(normalized)];
+  } catch {
+    return normalized
+      .replace(/}\s*{/g, "}\n{")
+      .split(/\n+/)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+  }
+}
+
+function buildTranscriptContext(transcript, startTime) {
+  if (!Array.isArray(transcript) || !transcript.length) return "";
+  const time = Number.isFinite(startTime) ? startTime : 0;
+  const context = transcript
+    .filter((segment) => Math.abs(Number(segment?.startTime || 0) - time) <= 45)
+    .slice(0, 8)
+    .map((segment) => String(segment?.text || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return context ? `Nearby transcript context: ${context}` : "";
+}
+
+function formatClock(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${mins}:${String(secs).padStart(2, "0")}`;
 }
 
 async function normalizeYoulearnVideo(item) {
