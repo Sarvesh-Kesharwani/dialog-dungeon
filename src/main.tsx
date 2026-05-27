@@ -9,6 +9,7 @@ import {
   Dumbbell,
   Film,
   Flame,
+  FolderPlus,
   Home,
   Languages,
   Link,
@@ -17,21 +18,31 @@ import {
   Plus,
   Save,
   Send,
+  Settings,
   Sparkles,
   Star,
   Trash2,
   Trophy,
-  Video
+  Video,
+  Volume2
 } from "lucide-react";
 import "./styles.css";
 
-type Page = "home" | "watch" | "practice" | "graph";
+type Page = "home" | "watch" | "practice" | "graph" | "settings";
 
 type TranscriptSegment = {
   id: string;
   startTime: number;
+  endTime?: number;
   text: string;
   custom?: boolean;
+};
+
+type Folder = {
+  id: string;
+  name: string;
+  parentId?: string;
+  source?: "local" | "youlearn";
 };
 
 type SpaceVideo = {
@@ -41,6 +52,11 @@ type SpaceVideo = {
   thumbnailUrl?: string;
   duration: number;
   transcript: TranscriptSegment[];
+  folderId?: string;
+  folderName?: string;
+  sourceType?: string;
+  watchedAt?: string;
+  lastPosition?: number;
 };
 
 type SavedDialogue = {
@@ -66,8 +82,19 @@ type DailyScore = {
   totalScore: number;
 };
 
+type AppState = {
+  videos: SpaceVideo[];
+  savedDialogues: SavedDialogue[];
+  scores: DailyScore[];
+  folders: Folder[];
+  prompt: string;
+  updatedAt: string;
+};
+
 const defaultPrompt =
   "Explain this movie dialogue in Hinglish, then give a natural English version. Keep it short and learner friendly.";
+
+const defaultFolders: Folder[] = [{ id: "root", name: "All Dialogues", source: "local" }];
 
 const fallbackVideos: SpaceVideo[] = [
   {
@@ -76,23 +103,12 @@ const fallbackVideos: SpaceVideo[] = [
     contentUrl: "",
     thumbnailUrl: "",
     duration: 132,
+    folderId: "root",
     transcript: [
-      { id: "d1", startTime: 0, text: "Life is not a race, Farhan." },
-      { id: "d2", startTime: 8, text: "Do what your heart understands, not what fear demands." },
-      { id: "d3", startTime: 18, text: "If you follow your passion, success will follow you." },
-      { id: "d4", startTime: 31, text: "Your dream deserves courage, not permission." }
-    ]
-  },
-  {
-    id: "demo-taare",
-    title: "Taare Zameen Par - Teacher Understands Ishaan",
-    contentUrl: "",
-    thumbnailUrl: "",
-    duration: 98,
-    transcript: [
-      { id: "t1", startTime: 0, text: "Every child has a different rhythm." },
-      { id: "t2", startTime: 9, text: "He is not lazy; he is trying to survive a world that does not see him." },
-      { id: "t3", startTime: 22, text: "Sometimes a little patience becomes a bridge." }
+      { id: "d1", startTime: 0, endTime: 8, text: "Life is not a race, Farhan." },
+      { id: "d2", startTime: 8, endTime: 18, text: "Do what your heart understands, not what fear demands." },
+      { id: "d3", startTime: 18, endTime: 31, text: "If you follow your passion, success will follow you." },
+      { id: "d4", startTime: 31, endTime: 45, text: "Your dream deserves courage, not permission." }
     ]
   }
 ];
@@ -116,24 +132,86 @@ function extractSpaceId(value: string) {
   return match?.[1] ?? "";
 }
 
+function getClientId() {
+  const key = "dialogdungeon-client-id";
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const id = `dd-${crypto.randomUUID()}`;
+  localStorage.setItem(key, id);
+  return id;
+}
+
 function App() {
   const [page, setPage] = React.useState<Page>("home");
-  const [videos, setVideos] = React.useState<SpaceVideo[]>(() =>
-    readJson("dialogdungeon-videos", fallbackVideos)
-  );
+  const [clientId] = React.useState(getClientId);
+  const [videos, setVideos] = React.useState<SpaceVideo[]>(() => readJson("dialogdungeon-videos", fallbackVideos));
+  const [folders, setFolders] = React.useState<Folder[]>(() => readJson("dialogdungeon-folders", defaultFolders));
   const [savedDialogues, setSavedDialogues] = React.useState<SavedDialogue[]>(() =>
     readJson("dialogdungeon-dialogues", [])
   );
   const [scores, setScores] = React.useState<DailyScore[]>(() => readJson("dialogdungeon-scores", []));
   const [prompt, setPrompt] = React.useState(() => localStorage.getItem("dialogdungeon-prompt") || defaultPrompt);
+  const [syncStatus, setSyncStatus] = React.useState("Local");
+  const cloudLoaded = React.useRef(false);
 
-  React.useEffect(() => localStorage.setItem("dialogdungeon-videos", JSON.stringify(videos)), [videos]);
-  React.useEffect(
-    () => localStorage.setItem("dialogdungeon-dialogues", JSON.stringify(savedDialogues)),
-    [savedDialogues]
-  );
-  React.useEffect(() => localStorage.setItem("dialogdungeon-scores", JSON.stringify(scores)), [scores]);
-  React.useEffect(() => localStorage.setItem("dialogdungeon-prompt", prompt), [prompt]);
+  React.useEffect(() => {
+    localStorage.setItem("dialogdungeon-videos", JSON.stringify(videos));
+    localStorage.setItem("dialogdungeon-folders", JSON.stringify(folders));
+    localStorage.setItem("dialogdungeon-dialogues", JSON.stringify(savedDialogues));
+    localStorage.setItem("dialogdungeon-scores", JSON.stringify(scores));
+    localStorage.setItem("dialogdungeon-prompt", prompt);
+  }, [videos, folders, savedDialogues, scores, prompt]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/sync?clientId=${encodeURIComponent(clientId)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.state) {
+          const cloud = data.state as Partial<AppState>;
+          setVideos((current) => mergeVideos(current, cloud.videos ?? []));
+          setFolders((current) => mergeFolders(current, cloud.folders ?? []));
+          setSavedDialogues((current) => mergeById(current, cloud.savedDialogues ?? []));
+          setScores((current) => mergeScores(current, cloud.scores ?? []));
+          if (cloud.prompt) setPrompt(cloud.prompt);
+        }
+        setSyncStatus(data?.source === "supabase" ? "Synced" : "Local");
+        cloudLoaded.current = true;
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSyncStatus("Local");
+          cloudLoaded.current = true;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+
+  React.useEffect(() => {
+    if (!cloudLoaded.current) return;
+    const timeout = window.setTimeout(() => {
+      const state: AppState = {
+        videos,
+        folders,
+        savedDialogues,
+        scores,
+        prompt,
+        updatedAt: new Date().toISOString()
+      };
+      fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId, state })
+      })
+        .then((response) => response.json())
+        .then((data) => setSyncStatus(data?.ok ? "Synced" : "Local"))
+        .catch(() => setSyncStatus("Local"));
+    }, 800);
+    return () => window.clearTimeout(timeout);
+  }, [clientId, videos, folders, savedDialogues, scores, prompt]);
 
   function saveDialogue(video: SpaceVideo, segment: TranscriptSegment) {
     const exists = savedDialogues.some(
@@ -188,46 +266,49 @@ function App() {
   }
 
   const todayScore = scores.find((item) => item.date === todayKey());
+  const stats = buildStats(videos, savedDialogues, scores, folders);
 
   return (
     <main className="duo-app">
       <SideNav page={page} onPage={setPage} savedCount={savedDialogues.length} />
       <section className="duo-main">
-        {page === "home" ? (
-          <HomePage
-            videos={videos}
-            savedDialogues={savedDialogues}
-            todayScore={todayScore}
-            onPage={setPage}
-          />
-        ) : null}
-        {page === "watch" ? (
-          <WatchPage
-            videos={videos}
-            setVideos={setVideos}
-            savedDialogues={savedDialogues}
-            onSaveDialogue={saveDialogue}
-            prompt={prompt}
-            setPrompt={setPrompt}
-            onUpdateDialogue={updateDialogue}
-          />
-        ) : null}
-        {page === "practice" ? (
-          <PracticePage
-            savedDialogues={savedDialogues}
-            onRecord={recordPractice}
-            videos={videos}
-            prompt={prompt}
-          />
-        ) : null}
-        {page === "graph" ? (
-          <GraphPage
-            savedDialogues={savedDialogues}
-            scores={scores}
-            onUpdateDialogue={updateDialogue}
-            onDeleteDialogue={deleteDialogue}
-          />
-        ) : null}
+        <TopHeader stats={stats} syncStatus={syncStatus} />
+        <section className="page-shell">
+          {page === "home" ? (
+            <HomePage videos={videos} savedDialogues={savedDialogues} todayScore={todayScore} onPage={setPage} />
+          ) : null}
+          {page === "watch" ? (
+            <WatchPage
+              videos={videos}
+              folders={folders}
+              setVideos={setVideos}
+              setFolders={setFolders}
+              savedDialogues={savedDialogues}
+              onSaveDialogue={saveDialogue}
+            />
+          ) : null}
+          {page === "practice" ? (
+            <PracticePage savedDialogues={savedDialogues} onRecord={recordPractice} videos={videos} prompt={prompt} />
+          ) : null}
+          {page === "graph" ? (
+            <GraphPage
+              savedDialogues={savedDialogues}
+              scores={scores}
+              onUpdateDialogue={updateDialogue}
+              onDeleteDialogue={deleteDialogue}
+            />
+          ) : null}
+          {page === "settings" ? (
+            <SettingsPage
+              videos={videos}
+              setVideos={setVideos}
+              savedDialogues={savedDialogues}
+              prompt={prompt}
+              setPrompt={setPrompt}
+              onUpdateDialogue={updateDialogue}
+            />
+          ) : null}
+        </section>
       </section>
     </main>
   );
@@ -238,7 +319,8 @@ function SideNav({ page, onPage, savedCount }: { page: Page; onPage: (page: Page
     { page: "home", label: "Home", icon: <Home size={21} /> },
     { page: "watch", label: "Watch", icon: <Video size={21} /> },
     { page: "practice", label: "Practice", icon: <Dumbbell size={21} /> },
-    { page: "graph", label: "Library", icon: <BarChart3 size={21} /> }
+    { page: "graph", label: "Library", icon: <BarChart3 size={21} /> },
+    { page: "settings", label: "Settings", icon: <Settings size={21} /> }
   ];
 
   return (
@@ -252,11 +334,7 @@ function SideNav({ page, onPage, savedCount }: { page: Page; onPage: (page: Page
       </div>
       <nav>
         {items.map((item) => (
-          <button
-            key={item.page}
-            className={page === item.page ? "active" : ""}
-            onClick={() => onPage(item.page)}
-          >
+          <button key={item.page} className={page === item.page ? "active" : ""} onClick={() => onPage(item.page)}>
             {item.icon}
             {item.label}
           </button>
@@ -268,6 +346,29 @@ function SideNav({ page, onPage, savedCount }: { page: Page; onPage: (page: Page
         <span>saved lines</span>
       </div>
     </aside>
+  );
+}
+
+function TopHeader({ stats, syncStatus }: { stats: ReturnType<typeof buildStats>; syncStatus: string }) {
+  return (
+    <header className="top-header">
+      <Metric icon={<Flame />} label="Streak" value={`${stats.streak} days`} />
+      <Metric icon={<BookOpen />} label="Saved" value={stats.saved} />
+      <Metric icon={<Film />} label="Watched" value={stats.watched} />
+      <Metric icon={<FolderPlus />} label="Folders" value={stats.folders} />
+      <Metric icon={<Trophy />} label="Avg Score" value={`${stats.avg}%`} />
+      <Metric icon={<CheckCircle2 />} label="Sync" value={syncStatus} />
+    </header>
+  );
+}
+
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+  return (
+    <div className="metric">
+      {icon}
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
@@ -289,10 +390,7 @@ function HomePage({
         <div>
           <p>Movie dialogue gym</p>
           <h1>Watch. Save. Translate. Level up.</h1>
-          <span>
-            Import YouLearn spaces, save hard dialogues, and drill five lines daily with spaced
-            repetition.
-          </span>
+          <span>Import YouLearn spaces, save hard dialogues, and drill five lines daily with spaced repetition.</span>
           <div className="hero-actions">
             <button onClick={() => onPage("watch")}>
               <Play size={18} /> Start watching
@@ -303,7 +401,6 @@ function HomePage({
           </div>
         </div>
         <div className="duo-mascot">
-          <div className="face" />
           <strong>5</strong>
           <span>daily dialogues</span>
         </div>
@@ -353,36 +450,54 @@ function StatTile({ icon, label, value }: { icon: React.ReactNode; label: string
 
 function WatchPage({
   videos,
+  folders,
   setVideos,
+  setFolders,
   savedDialogues,
-  onSaveDialogue,
-  prompt,
-  setPrompt,
-  onUpdateDialogue
+  onSaveDialogue
 }: {
   videos: SpaceVideo[];
+  folders: Folder[];
   setVideos: React.Dispatch<React.SetStateAction<SpaceVideo[]>>;
+  setFolders: React.Dispatch<React.SetStateAction<Folder[]>>;
   savedDialogues: SavedDialogue[];
   onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => void;
-  prompt: string;
-  setPrompt: (prompt: string) => void;
-  onUpdateDialogue: (dialogue: SavedDialogue) => void;
 }) {
   const [spaceUrl, setSpaceUrl] = React.useState("https://app.youlearn.ai/space/c9241bc0721046c8");
   const [activeVideoId, setActiveVideoId] = React.useState(videos[0]?.id ?? "");
+  const [selectedFolder, setSelectedFolder] = React.useState("all");
   const [currentTime, setCurrentTime] = React.useState(0);
   const [loading, setLoading] = React.useState(false);
   const [status, setStatus] = React.useState("");
-  const [customTranscript, setCustomTranscript] = React.useState("");
-  const [selectedDialogueId, setSelectedDialogueId] = React.useState(savedDialogues[0]?.id ?? "");
-  const [processingId, setProcessingId] = React.useState("");
+  const videoRef = React.useRef<HTMLVideoElement | null>(null);
+  const lineRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
-  const activeVideo = videos.find((video) => video.id === activeVideoId) ?? videos[0] ?? fallbackVideos[0];
+  const filteredVideos =
+    selectedFolder === "all" ? videos : videos.filter((video) => (video.folderId || "root") === selectedFolder);
+  const activeVideo = videos.find((video) => video.id === activeVideoId) ?? filteredVideos[0] ?? videos[0] ?? fallbackVideos[0];
   const activeSegment =
     activeVideo.transcript
       .slice()
       .reverse()
       .find((segment) => segment.startTime <= currentTime) ?? activeVideo.transcript[0];
+  const isYouTube = isYouTubeUrl(activeVideo.contentUrl);
+
+  React.useEffect(() => {
+    if (!activeVideoId && videos[0]) setActiveVideoId(videos[0].id);
+  }, [activeVideoId, videos]);
+
+  React.useEffect(() => {
+    if (activeSegment?.id) {
+      lineRefs.current[activeSegment.id]?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [activeSegment?.id]);
+
+  React.useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = false;
+      videoRef.current.volume = 1;
+    }
+  }, [activeVideo.id]);
 
   async function importSpace() {
     const spaceId = extractSpaceId(spaceUrl);
@@ -396,37 +511,223 @@ function WatchPage({
       const response = await fetch(`/api/youlearn-space?spaceId=${encodeURIComponent(spaceId)}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data?.error || "Import failed");
-      const imported = Array.isArray(data.contents) && data.contents.length ? data.contents : fallbackVideos;
-      setVideos(imported);
-      setActiveVideoId(imported[0]?.id ?? "");
-      setStatus(`Imported ${imported.length} video(s).`);
+      const importedFolders = normalizeImportedFolders(spaceId, data.folders ?? []);
+      const importedVideos = normalizeImportedVideos(spaceId, data.contents ?? []);
+      setFolders((current) => mergeFolders(current, importedFolders));
+      setVideos((current) =>
+        current.every((video) => video.id.startsWith("demo-")) ? importedVideos : mergeVideos(current, importedVideos)
+      );
+      setActiveVideoId(importedVideos[0]?.id ?? activeVideoId);
+      setStatus(`Imported ${importedVideos.length} video(s). Duplicates skipped locally.`);
     } catch (error) {
-      setVideos(fallbackVideos);
-      setActiveVideoId(fallbackVideos[0].id);
-      setStatus(error instanceof Error ? `${error.message}. Demo videos loaded.` : "Demo videos loaded.");
+      setStatus(error instanceof Error ? error.message : "Import failed.");
     } finally {
       setLoading(false);
     }
   }
 
-  function applyCustomTranscript() {
-    const segments = customTranscript
-      .split(/\r?\n/)
-      .map((line, index) => {
-        const match = line.match(/^(?:(\d+(?:\.\d+)?)\s*[-:]\s*)?(.*)$/);
-        return {
-          id: `custom-${Date.now()}-${index}`,
-          startTime: Number(match?.[1] ?? index * 6),
-          text: (match?.[2] ?? line).trim(),
-          custom: true
-        };
-      })
-      .filter((segment) => segment.text);
-    if (!segments.length) return;
+  function renameVideo(video: SpaceVideo) {
+    const next = window.prompt("Rename video", video.title)?.trim();
+    if (!next) return;
+    setVideos((current) => current.map((item) => (item.id === video.id ? { ...item, title: next } : item)));
+  }
+
+  function removeVideo(video: SpaceVideo) {
+    setVideos((current) => current.filter((item) => item.id !== video.id));
+    if (activeVideoId === video.id) setActiveVideoId(videos.find((item) => item.id !== video.id)?.id ?? "");
+  }
+
+  function createFolder() {
+    const name = window.prompt("Folder name")?.trim();
+    if (!name) return;
+    setFolders((current) => [...current, { id: `folder-${Date.now()}`, name, source: "local" }]);
+  }
+
+  function seekTo(segment: TranscriptSegment) {
+    setCurrentTime(segment.startTime);
+    if (videoRef.current) {
+      videoRef.current.currentTime = segment.startTime;
+      videoRef.current.play().catch(() => undefined);
+    }
+  }
+
+  function markWatched(time: number) {
+    setCurrentTime(time);
     setVideos((current) =>
-      current.map((video) => (video.id === activeVideo.id ? { ...video, transcript: segments } : video))
+      current.map((video) =>
+        video.id === activeVideo.id
+          ? { ...video, lastPosition: time, watchedAt: time > 5 ? new Date().toISOString() : video.watchedAt }
+          : video
+      )
     );
-    setStatus("Custom transcript applied.");
+  }
+
+  return (
+    <div className="watch-grid">
+      <section className="space-import">
+        <div>
+          <h1>Watch</h1>
+          <p>Add public YouLearn spaces. Imported clips stay after reload and sync to Supabase.</p>
+        </div>
+        <div className="import-row">
+          <Link size={18} />
+          <input value={spaceUrl} onChange={(event) => setSpaceUrl(event.target.value)} />
+          <button onClick={importSpace} disabled={loading}>
+            {loading ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
+            Import
+          </button>
+        </div>
+        <span className="status-line">{status}</span>
+      </section>
+
+      <section className="video-list">
+        <div className="section-head compact">
+          <h2>Folders</h2>
+          <button className="mini-action" onClick={createFolder}>
+            <FolderPlus size={15} />
+          </button>
+        </div>
+        <div className="folder-tabs">
+          <button className={selectedFolder === "all" ? "active" : ""} onClick={() => setSelectedFolder("all")}>
+            All <span>{videos.length}</span>
+          </button>
+          {folders.map((folder) => (
+            <button
+              key={folder.id}
+              className={selectedFolder === folder.id ? "active" : ""}
+              onClick={() => setSelectedFolder(folder.id)}
+            >
+              {folder.name} <span>{videos.filter((video) => (video.folderId || "root") === folder.id).length}</span>
+            </button>
+          ))}
+        </div>
+        <h2>Videos</h2>
+        <div className="video-stack">
+          {filteredVideos.map((video) => (
+            <div key={video.id} className={`video-row ${video.id === activeVideo.id ? "active" : ""}`}>
+              <button onClick={() => setActiveVideoId(video.id)}>
+                <div className="thumb">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" /> : <Film />}</div>
+                <span>{video.title}</span>
+                <small>{video.sourceType === "youtube" ? "YouTube" : `${Math.round(video.duration || 0)}s`}</small>
+              </button>
+              <div className="video-actions">
+                <button onClick={() => renameVideo(video)} title="Rename video">
+                  <ClipboardEdit size={14} />
+                </button>
+                <button className="danger" onClick={() => removeVideo(video)} title="Remove locally">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="player-card">
+        {activeVideo.contentUrl ? (
+          isYouTube ? (
+            <iframe
+              title={activeVideo.title}
+              src={youtubeEmbedUrl(activeVideo.contentUrl)}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <video
+              ref={videoRef}
+              src={activeVideo.contentUrl}
+              controls
+              playsInline
+              preload="metadata"
+              crossOrigin="anonymous"
+              poster={activeVideo.thumbnailUrl}
+              onLoadedMetadata={(event) => {
+                if (activeVideo.lastPosition) event.currentTarget.currentTime = activeVideo.lastPosition;
+                event.currentTarget.volume = 1;
+                event.currentTarget.muted = false;
+              }}
+              onTimeUpdate={(event) => markWatched(event.currentTarget.currentTime)}
+            />
+          )
+        ) : (
+          <div className="video-placeholder">
+            <Play size={42} />
+            <strong>{activeVideo.title}</strong>
+            <span>Import a YouLearn space for playable video.</span>
+          </div>
+        )}
+        <div className="subtitle-card">
+          <Volume2 size={22} />
+          <p>{activeSegment?.text ?? "Transcript line appears here while video plays."}</p>
+          <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
+            <Save size={16} /> Save Dialogue
+          </button>
+        </div>
+      </section>
+
+      <section className="transcript-card">
+        <div className="section-head">
+          <h2>Dialogues</h2>
+          <span>{activeVideo.transcript.length} lines</span>
+        </div>
+        <div className="transcript-list">
+          {activeVideo.transcript.map((segment) => (
+            <button
+              key={segment.id}
+              ref={(element) => {
+                lineRefs.current[segment.id] = element;
+              }}
+              className={segment.id === activeSegment?.id ? "active" : ""}
+              onClick={() => {
+                seekTo(segment);
+                onSaveDialogue(activeVideo, segment);
+              }}
+            >
+              <small>{formatTime(segment.startTime)}</small>
+              <span>{segment.text}</span>
+            </button>
+          ))}
+        </div>
+        <div className="saved-mini">
+          <strong>{savedDialogues.filter((item) => item.videoId === activeVideo.id).length}</strong>
+          <span>saved from this video</span>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SettingsPage({
+  videos,
+  setVideos,
+  savedDialogues,
+  prompt,
+  setPrompt,
+  onUpdateDialogue
+}: {
+  videos: SpaceVideo[];
+  setVideos: React.Dispatch<React.SetStateAction<SpaceVideo[]>>;
+  savedDialogues: SavedDialogue[];
+  prompt: string;
+  setPrompt: (prompt: string) => void;
+  onUpdateDialogue: (dialogue: SavedDialogue) => void;
+}) {
+  const [selectedVideoId, setSelectedVideoId] = React.useState(videos[0]?.id ?? "");
+  const [selectedDialogueId, setSelectedDialogueId] = React.useState(savedDialogues[0]?.id ?? "");
+  const [processingId, setProcessingId] = React.useState("");
+  const [status, setStatus] = React.useState("");
+
+  async function applySrt(file: File) {
+    const text = await file.text();
+    const segments = parseSrt(text);
+    if (!segments.length) {
+      setStatus("No SRT cues found.");
+      return;
+    }
+    setVideos((current) =>
+      current.map((video) => (video.id === selectedVideoId ? { ...video, transcript: segments } : video))
+    );
+    setStatus(`Applied ${segments.length} SRT cues.`);
   }
 
   async function processDialogue(dialogue: SavedDialogue, mode: "Hinglish" | "English") {
@@ -450,104 +751,35 @@ function WatchPage({
   }
 
   return (
-    <div className="watch-grid">
-      <section className="space-import">
-        <div>
-          <h1>Watch</h1>
-          <p>Add a public YouLearn space, play movie videos, and save exact dialogues.</p>
-        </div>
-        <div className="import-row">
-          <Link size={18} />
-          <input value={spaceUrl} onChange={(event) => setSpaceUrl(event.target.value)} />
-          <button onClick={importSpace} disabled={loading}>
-            {loading ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
-            Import
-          </button>
-        </div>
-        <span className="status-line">{status}</span>
+    <div className="settings-grid">
+      <section className="settings-card">
+        <h1>Settings</h1>
+        <p>SRT transcript overrides and prompt tools live here.</p>
       </section>
-
-      <section className="video-list">
-        <h2>Space videos</h2>
-        {videos.map((video) => (
-          <button
-            key={video.id}
-            className={video.id === activeVideo.id ? "active" : ""}
-            onClick={() => setActiveVideoId(video.id)}
-          >
-            <div className="thumb">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" /> : <Film />}</div>
-            <span>{video.title}</span>
-            <small>{Math.round(video.duration || 0)}s</small>
-          </button>
-        ))}
-      </section>
-
-      <section className="player-card">
-        {activeVideo.contentUrl ? (
-          <video
-            src={activeVideo.contentUrl}
-            controls
-            poster={activeVideo.thumbnailUrl}
-            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-          />
-        ) : (
-          <div className="video-placeholder">
-            <Play size={42} />
-            <strong>{activeVideo.title}</strong>
-            <span>Demo clip shell. Import a YouLearn space for playable video.</span>
-          </div>
-        )}
-        <div className="subtitle-card">
-          <Languages size={22} />
-          <p>{activeSegment?.text ?? "Transcript line appears here while video plays."}</p>
-          <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
-            <Save size={16} /> Save Dialogue
-          </button>
-        </div>
-      </section>
-
-      <section className="transcript-card">
-        <div className="section-head">
-          <h2>Dialogues</h2>
-          <span>{activeVideo.transcript.length} lines</span>
-        </div>
-        <div className="transcript-list">
-          {activeVideo.transcript.map((segment) => (
-            <button
-              key={segment.id}
-              className={segment.id === activeSegment?.id ? "active" : ""}
-              onClick={() => {
-                setCurrentTime(segment.startTime);
-                onSaveDialogue(activeVideo, segment);
-              }}
-            >
-              <small>{formatTime(segment.startTime)}</small>
-              <span>{segment.text}</span>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="custom-card">
+      <section className="settings-card">
         <h2>Custom transcript</h2>
-        <textarea
-          value={customTranscript}
-          onChange={(event) => setCustomTranscript(event.target.value)}
-          placeholder="0 - Dialogue one&#10;8 - Dialogue two&#10;15 - Dialogue three"
-        />
-        <button onClick={applyCustomTranscript}>
-          <ClipboardEdit size={16} /> Use custom transcript
-        </button>
+        <select value={selectedVideoId} onChange={(event) => setSelectedVideoId(event.target.value)}>
+          {videos.map((video) => (
+            <option key={video.id} value={video.id}>
+              {video.title}
+            </option>
+          ))}
+        </select>
+        <label className="file-drop">
+          <ClipboardEdit size={20} />
+          <span>Pick `.srt` file</span>
+          <input type="file" accept=".srt" onChange={(event) => event.target.files?.[0] && applySrt(event.target.files[0])} />
+        </label>
+        <small>{status}</small>
       </section>
-
-      <section className="prompt-card">
+      <section className="settings-card">
         <h2>Dialogue prompt</h2>
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
         <select value={selectedDialogueId} onChange={(event) => setSelectedDialogueId(event.target.value)}>
           <option value="">Select saved dialogue</option>
           {savedDialogues.map((dialogue) => (
             <option key={dialogue.id} value={dialogue.id}>
-              {dialogue.text.slice(0, 70)}
+              {dialogue.text.slice(0, 80)}
             </option>
           ))}
         </select>
@@ -631,9 +863,7 @@ function PracticePage({
   if (!active) {
     return (
       <section className="empty-practice">
-        <div className="duo-mascot small">
-          <div className="face" />
-        </div>
+        <div className="duo-mascot small" />
         <h1>No saved dialogues yet</h1>
         <p>Go to Watch, save a few dialogues, then start the daily 5-line test.</p>
       </section>
@@ -651,14 +881,10 @@ function PracticePage({
           <div className="xp-pill">Set {active.bucket}</div>
         </div>
         <div className="clip-box">
-          {video?.contentUrl ? <video src={video.contentUrl} controls /> : <Film size={52} />}
+          {video?.contentUrl && !isYouTubeUrl(video.contentUrl) ? <video src={video.contentUrl} controls /> : <Film size={52} />}
           <div className="hinglish-subtitle">{active.hinglish || active.promptResult || toHinglishHint(active.text)}</div>
         </div>
-        <textarea
-          value={answer}
-          onChange={(event) => setAnswer(event.target.value)}
-          placeholder="Type the English version..."
-        />
+        <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Type the English version..." />
         <button className="big-green" onClick={submit} disabled={loading || !answer.trim()}>
           {loading ? <Loader2 className="spin" /> : <Send />}
           Check answer
@@ -684,7 +910,7 @@ function PracticePage({
             </button>
           </>
         ) : (
-          <p>Submit your translation to get scored. Correct lines move down to lower priority sets.</p>
+          <p>Submit translation. Correct lines move to lower-priority sets.</p>
         )}
       </section>
     </div>
@@ -730,9 +956,7 @@ function GraphPage({
                 ) : (
                   <strong>{dialogue.text}</strong>
                 )}
-                {dialogue.hinglish || dialogue.english ? (
-                  <span>{dialogue.hinglish || dialogue.english}</span>
-                ) : null}
+                {dialogue.hinglish || dialogue.english ? <span>{dialogue.hinglish || dialogue.english}</span> : null}
               </div>
               <div className="row-actions">
                 {editingId === dialogue.id ? (
@@ -764,7 +988,7 @@ function GraphPage({
       </section>
       <section className="progress-card">
         <h2>Daily scores</h2>
-        {scores.slice(0, 8).map((score) => (
+        {scores.slice(0, 12).map((score) => (
           <div className="score-row" key={score.date}>
             <span>{score.date}</span>
             <strong>{Math.round(score.totalScore / Math.max(1, score.attempted))}%</strong>
@@ -781,6 +1005,112 @@ function buildDailySet(dialogues: SavedDialogue[]) {
     .slice()
     .sort((a, b) => a.bucket - b.bucket || b.missCount - a.missCount || a.correctCount - b.correctCount)
     .slice(0, 5);
+}
+
+function buildStats(videos: SpaceVideo[], saved: SavedDialogue[], scores: DailyScore[], folders: Folder[]) {
+  const dates = new Set(scores.filter((score) => score.attempted > 0).map((score) => score.date));
+  let streak = 0;
+  const day = new Date();
+  while (dates.has(day.toISOString().slice(0, 10))) {
+    streak += 1;
+    day.setDate(day.getDate() - 1);
+  }
+  const attempts = scores.reduce((sum, score) => sum + score.attempted, 0);
+  const total = scores.reduce((sum, score) => sum + score.totalScore, 0);
+  return {
+    streak,
+    saved: saved.length,
+    watched: videos.filter((video) => video.watchedAt).length,
+    folders: folders.length,
+    avg: attempts ? Math.round(total / attempts) : 0
+  };
+}
+
+function mergeVideos(current: SpaceVideo[], incoming: SpaceVideo[]) {
+  const map = new Map(current.map((video) => [video.id, video]));
+  for (const video of incoming) {
+    const existing = map.get(video.id);
+    map.set(video.id, existing ? { ...video, ...existing, transcript: existing.transcript?.length ? existing.transcript : video.transcript } : video);
+  }
+  return Array.from(map.values());
+}
+
+function mergeFolders(current: Folder[], incoming: Folder[]) {
+  return mergeById(current, incoming).length ? mergeById(current, incoming) : defaultFolders;
+}
+
+function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
+  const map = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) map.set(item.id, { ...item, ...map.get(item.id) });
+  return Array.from(map.values());
+}
+
+function mergeScores(current: DailyScore[], incoming: DailyScore[]) {
+  const map = new Map(current.map((score) => [score.date, score]));
+  for (const score of incoming) {
+    const existing = map.get(score.date);
+    map.set(score.date, existing ? { date: score.date, attempted: Math.max(existing.attempted, score.attempted), totalScore: Math.max(existing.totalScore, score.totalScore) } : score);
+  }
+  return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function normalizeImportedFolders(spaceId: string, rawFolders: Array<{ folderId: string; folderName: string }>) {
+  const folders = rawFolders.map((folder) => ({
+    id: `yl-${spaceId}-${folder.folderId}`,
+    name: folder.folderName || "YouLearn Folder",
+    source: "youlearn" as const
+  }));
+  return folders.length ? folders : [{ id: `yl-${spaceId}-root`, name: "YouLearn Import", source: "youlearn" as const }];
+}
+
+function normalizeImportedVideos(spaceId: string, rawVideos: SpaceVideo[]) {
+  return rawVideos.map((video) => ({
+    ...video,
+    id: video.id,
+    folderId: video.folderId ? `yl-${spaceId}-${video.folderId}` : `yl-${spaceId}-root`,
+    folderName: video.folderName || "YouLearn Import"
+  }));
+}
+
+function parseSrt(input: string): TranscriptSegment[] {
+  return input
+    .replace(/\r/g, "")
+    .split(/\n\n+/)
+    .map((block, index) => {
+      const lines = block.split("\n").filter(Boolean);
+      const timeLine = lines.find((line) => line.includes("-->"));
+      if (!timeLine) return null;
+      const [startRaw, endRaw] = timeLine.split("-->").map((part) => part.trim());
+      const text = lines.slice(lines.indexOf(timeLine) + 1).join(" ").trim();
+      if (!text) return null;
+      return {
+        id: `srt-${Date.now()}-${index}`,
+        startTime: srtTime(startRaw),
+        endTime: srtTime(endRaw),
+        text,
+        custom: true
+      };
+    })
+    .filter(Boolean) as TranscriptSegment[];
+}
+
+function srtTime(value: string) {
+  const match = value.match(/(?:(\d+):)?(\d+):(\d+)[,.](\d+)/);
+  if (!match) return 0;
+  const hours = Number(match[1] || 0);
+  const minutes = Number(match[2] || 0);
+  const seconds = Number(match[3] || 0);
+  const ms = Number(match[4] || 0);
+  return hours * 3600 + minutes * 60 + seconds + ms / 1000;
+}
+
+function isYouTubeUrl(url: string) {
+  return /(?:youtube\.com|youtu\.be)/i.test(url);
+}
+
+function youtubeEmbedUrl(url: string) {
+  const id = url.match(/[?&]v=([^&]+)/)?.[1] || url.match(/youtu\.be\/([^?]+)/)?.[1] || url.split("/").pop() || "";
+  return `https://www.youtube.com/embed/${encodeURIComponent(id)}?rel=0`;
 }
 
 function formatTime(seconds: number) {

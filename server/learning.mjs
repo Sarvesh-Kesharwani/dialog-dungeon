@@ -102,8 +102,11 @@ export async function getYoulearnSpacePayload(query = {}) {
 
     const payload = await response.json();
     const rawContents = Array.isArray(payload?.contents) ? payload.contents : [];
+    const folderLookup = buildYoulearnFolderLookup(payload?.space_content_maps);
     const videoItems = rawContents.filter((item) => item?.content_url || item?.url);
-    const contents = await Promise.all(videoItems.map(normalizeYoulearnVideo));
+    const contents = await Promise.all(
+      videoItems.map((item) => normalizeYoulearnVideo({ ...item, ...folderLookup.get(String(item?.content_id || item?._id || item?.id)) }))
+    );
 
     return {
       status: 200,
@@ -112,6 +115,7 @@ export async function getYoulearnSpacePayload(query = {}) {
           id: String(payload?.space?._id || payload?.space?.id || spaceId),
           title: String(payload?.space?.title || payload?.space?.name || "YouLearn Space")
         },
+        folders: Array.from(new Map(Array.from(folderLookup.values()).map((folder) => [folder.folderId, folder])).values()),
         contents
       }
     };
@@ -189,6 +193,63 @@ export async function getPracticeGradePayload(body = {}) {
   }
 }
 
+export async function getSyncPayload(query = {}) {
+  const clientId = normalizeClientId(query.clientId);
+  if (!clientId) return { status: 400, body: { error: "clientId is required" } };
+
+  const config = supabaseConfig();
+  if (!config) return { status: 200, body: { state: null, updatedAt: null, source: "local-only" } };
+
+  try {
+    const response = await fetch(
+      `${config.url}/rest/v1/app_state?client_id=eq.${encodeURIComponent(clientId)}&select=state,updated_at`,
+      { headers: supabaseHeaders(config.key, clientId), cache: "no-store" }
+    );
+    if (!response.ok) throw new Error(await response.text());
+    const rows = await response.json();
+    return {
+      status: 200,
+      body: {
+        state: rows?.[0]?.state ?? null,
+        updatedAt: rows?.[0]?.updated_at ?? null,
+        source: "supabase"
+      }
+    };
+  } catch (error) {
+    console.error("Sync load failed", error);
+    return { status: 200, body: { state: null, updatedAt: null, source: "local-only" } };
+  }
+}
+
+export async function saveSyncPayload(body = {}) {
+  const clientId = normalizeClientId(body.clientId);
+  if (!clientId || !body.state || typeof body.state !== "object") {
+    return { status: 400, body: { error: "clientId and state are required" } };
+  }
+
+  const config = supabaseConfig();
+  if (!config) return { status: 200, body: { ok: false, source: "local-only" } };
+
+  try {
+    const updatedAt = new Date().toISOString();
+    const response = await fetch(`${config.url}/rest/v1/app_state?on_conflict=client_id`, {
+      method: "POST",
+      headers: {
+        ...supabaseHeaders(config.key, clientId),
+        "Content-Type": "application/json",
+        "Content-Profile": "dialog_dungeon",
+        Prefer: "resolution=merge-duplicates,return=representation"
+      },
+      body: JSON.stringify({ client_id: clientId, state: body.state, updated_at: updatedAt })
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return { status: 200, body: { ok: true, updatedAt, source: "supabase" } };
+  } catch (error) {
+    console.error("Sync save failed", error);
+    return { status: 200, body: { ok: false, source: "local-only" } };
+  }
+}
+
 async function callDeepSeekJson(prompt, maxTokens) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -234,6 +295,10 @@ async function normalizeYoulearnVideo(item) {
     contentUrl: String(item?.content_url || item?.url || ""),
     thumbnailUrl: String(item?.thumbnail_url || item?.thumbnail || ""),
     duration: Number.isFinite(duration) ? duration : 0,
+    sourceType: String(item?.type || "video"),
+    folderId: String(item?.folderId || ""),
+    folderName: String(item?.folderName || ""),
+    importSource: "youlearn",
     transcript
   };
 }
@@ -310,6 +375,48 @@ function tokenize(value) {
       .split(/\s+/)
       .filter((token) => token.length > 2)
   );
+}
+
+function buildYoulearnFolderLookup(spaceContentMaps) {
+  const lookup = new Map();
+  const folderNames = new Map();
+  let folderNumber = 1;
+  for (const item of Array.isArray(spaceContentMaps) ? spaceContentMaps : []) {
+    const contentId = String(item?.content?.id || "");
+    const folderId = String(item?.folder?.id || "");
+    if (!contentId || !folderId) continue;
+    if (!folderNames.has(folderId)) {
+      folderNames.set(folderId, `YouLearn Folder ${folderNumber}`);
+      folderNumber += 1;
+    }
+    lookup.set(contentId, {
+      folderId,
+      folderName: folderNames.get(folderId),
+      youlearnIndex: Number(item?.idx || 0)
+    });
+  }
+  return lookup;
+}
+
+function supabaseConfig() {
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) return null;
+  return { url: url.replace(/\/$/, ""), key };
+}
+
+function supabaseHeaders(key, clientId) {
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    "Accept-Profile": "dialog_dungeon",
+    "x-ddungeon-client-id": clientId
+  };
+}
+
+function normalizeClientId(value) {
+  const clientId = String(value || "").trim();
+  return /^[A-Za-z0-9_-]{12,80}$/.test(clientId) ? clientId : "";
 }
 
 async function fetchSceneContext(movie, scene) {

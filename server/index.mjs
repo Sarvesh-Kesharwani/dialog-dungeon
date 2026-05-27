@@ -8,6 +8,8 @@ import {
   getPracticeGradePayload,
   getReviewPayload,
   getScenePayload,
+  getSyncPayload,
+  saveSyncPayload,
   getYoulearnSpacePayload
 } from "./learning.mjs";
 
@@ -43,6 +45,16 @@ app.post("/api/dialogue-transform", async (req, res) => {
 
 app.post("/api/practice-grade", async (req, res) => {
   const result = await getPracticeGradePayload(req.body);
+  res.status(result.status).json(result.body);
+});
+
+app.get("/api/sync", async (req, res) => {
+  const result = await getSyncPayload(req.query);
+  res.status(result.status).json(result.body);
+});
+
+app.post("/api/sync", async (req, res) => {
+  const result = await saveSyncPayload(req.body);
   res.status(result.status).json(result.body);
 });
 
