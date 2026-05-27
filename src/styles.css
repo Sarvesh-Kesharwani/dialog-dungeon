@@ -55,6 +55,7 @@ button {
   grid-template-columns: 250px 1fr;
   gap: 18px;
   height: 100vh;
+  min-width: 0;
   padding: 16px;
   overflow: hidden;
 }
@@ -93,7 +94,7 @@ button {
   gap: 12px;
 }
 
-.owl,
+.brand-logo,
 .duo-mascot,
 .thumb,
 .bubble-avatar,
@@ -103,15 +104,12 @@ button {
   place-items: center;
 }
 
-.owl {
-  width: 48px;
-  height: 48px;
+.brand-logo {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
   border-radius: 16px;
-  color: #ffffff;
-  background: var(--duo-green);
-  border-bottom: 5px solid var(--duo-green-dark);
-  font-size: 24px;
-  font-weight: 950;
+  filter: drop-shadow(0 5px 0 rgba(61, 78, 97, 0.18));
 }
 
 .duo-brand strong,
@@ -1214,14 +1212,39 @@ button {
   .side-nav {
     flex-direction: row;
     min-height: auto;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .side-nav nav {
     display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
-  .streak-card {
+  .side-nav nav button {
+    flex: 0 0 auto;
+  }
+
+  .duo-brand {
+    flex: 0 0 auto;
+  }
+
+  .duo-brand span {
     display: none;
+  }
+
+  .top-header {
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 5px;
+  }
+
+  .metric {
+    flex: 0 0 146px;
   }
 
   .home-grid,

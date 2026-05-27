@@ -326,7 +326,7 @@ function SideNav({ page, onPage }: { page: Page; onPage: (page: Page) => void })
   return (
     <aside className="side-nav">
       <div className="duo-brand">
-        <div className="owl">D</div>
+        <img className="brand-logo" src="/dialog-dungeon-logo.svg" alt="" aria-hidden="true" />
         <div>
           <strong>DialogDungeon</strong>
           <span>Duolingo mode</span>
