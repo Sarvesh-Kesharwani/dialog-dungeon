@@ -270,7 +270,7 @@ function App() {
 
   return (
     <main className="duo-app">
-      <SideNav page={page} onPage={setPage} savedCount={savedDialogues.length} />
+      <SideNav page={page} onPage={setPage} />
       <section className="duo-main">
         <TopHeader stats={stats} syncStatus={syncStatus} />
         <section className="page-shell">
@@ -314,7 +314,7 @@ function App() {
   );
 }
 
-function SideNav({ page, onPage, savedCount }: { page: Page; onPage: (page: Page) => void; savedCount: number }) {
+function SideNav({ page, onPage }: { page: Page; onPage: (page: Page) => void }) {
   const items: { page: Page; label: string; icon: React.ReactNode }[] = [
     { page: "home", label: "Home", icon: <Home size={21} /> },
     { page: "watch", label: "Watch", icon: <Video size={21} /> },
@@ -340,11 +340,6 @@ function SideNav({ page, onPage, savedCount }: { page: Page; onPage: (page: Page
           </button>
         ))}
       </nav>
-      <div className="streak-card">
-        <Flame size={24} />
-        <strong>{savedCount}</strong>
-        <span>saved lines</span>
-      </div>
     </aside>
   );
 }

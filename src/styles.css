@@ -155,32 +155,6 @@ button {
   background: #ddf4ff;
 }
 
-.streak-card {
-  margin-top: auto;
-  padding: 16px;
-  border-radius: 18px;
-  color: #7a4100;
-  background: #fff4cf;
-  border: 2px solid #ffe08a;
-}
-
-.streak-card strong,
-.streak-card span {
-  display: block;
-}
-
-.streak-card strong {
-  margin-top: 8px;
-  font-size: 30px;
-  line-height: 1;
-}
-
-.streak-card span {
-  color: #986600;
-  font-size: 12px;
-  font-weight: 900;
-}
-
 .duo-main {
   display: grid;
   grid-template-rows: 74px 1fr;
