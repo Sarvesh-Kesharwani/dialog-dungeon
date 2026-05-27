@@ -464,6 +464,7 @@ function WatchPage({
   const [currentTime, setCurrentTime] = React.useState(0);
   const [loading, setLoading] = React.useState(false);
   const [status, setStatus] = React.useState("");
+  const [playbackStatus, setPlaybackStatus] = React.useState("");
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const lineRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -490,8 +491,10 @@ function WatchPage({
   React.useEffect(() => {
     if (videoRef.current) {
       videoRef.current.muted = false;
+      videoRef.current.defaultMuted = false;
       videoRef.current.volume = 1;
     }
+    setPlaybackStatus("");
   }, [activeVideo.id]);
 
   async function importSpace() {
@@ -542,7 +545,24 @@ function WatchPage({
     setCurrentTime(segment.startTime);
     if (videoRef.current) {
       videoRef.current.currentTime = segment.startTime;
+      videoRef.current.muted = false;
+      videoRef.current.defaultMuted = false;
+      videoRef.current.volume = 1;
       videoRef.current.play().catch(() => undefined);
+    }
+  }
+
+  async function enableVideoAudio() {
+    if (!videoRef.current) return;
+    const player = videoRef.current;
+    player.muted = false;
+    player.defaultMuted = false;
+    player.volume = 1;
+    try {
+      await player.play();
+      setPlaybackStatus("Sound on. Video playing.");
+    } catch (error) {
+      setPlaybackStatus(error instanceof Error ? error.message : "Use the video controls to start playback.");
     }
   }
 
@@ -634,12 +654,23 @@ function WatchPage({
               controls
               playsInline
               preload="metadata"
-              crossOrigin="anonymous"
               poster={activeVideo.thumbnailUrl}
               onLoadedMetadata={(event) => {
                 if (activeVideo.lastPosition) event.currentTarget.currentTime = activeVideo.lastPosition;
                 event.currentTarget.volume = 1;
                 event.currentTarget.muted = false;
+                event.currentTarget.defaultMuted = false;
+              }}
+              onCanPlay={() => setPlaybackStatus("Ready with sound.")}
+              onPlay={(event) => {
+                event.currentTarget.muted = false;
+                event.currentTarget.defaultMuted = false;
+                event.currentTarget.volume = 1;
+                setPlaybackStatus("Playing with sound on.");
+              }}
+              onError={(event) => {
+                const message = event.currentTarget.error?.message || "Video failed to load.";
+                setPlaybackStatus(message);
               }}
               onTimeUpdate={(event) => markWatched(event.currentTarget.currentTime)}
             />
@@ -654,10 +685,16 @@ function WatchPage({
         <div className="subtitle-card">
           <Volume2 size={22} />
           <p>{activeSegment?.text ?? "Transcript line appears here while video plays."}</p>
+          {!isYouTube && activeVideo.contentUrl ? (
+            <button onClick={enableVideoAudio}>
+              <Volume2 size={16} /> Sound On
+            </button>
+          ) : null}
           <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
             <Save size={16} /> Save Dialogue
           </button>
         </div>
+        {playbackStatus ? <span className="playback-status">{playbackStatus}</span> : null}
       </section>
 
       <section className="transcript-card">
@@ -1105,7 +1142,15 @@ function isYouTubeUrl(url: string) {
 
 function youtubeEmbedUrl(url: string) {
   const id = url.match(/[?&]v=([^&]+)/)?.[1] || url.match(/youtu\.be\/([^?]+)/)?.[1] || url.split("/").pop() || "";
-  return `https://www.youtube.com/embed/${encodeURIComponent(id)}?rel=0`;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const params = new URLSearchParams({
+    rel: "0",
+    mute: "0",
+    playsinline: "1",
+    enablejsapi: "1"
+  });
+  if (origin) params.set("origin", origin);
+  return `https://www.youtube.com/embed/${encodeURIComponent(id)}?${params.toString()}`;
 }
 
 function formatTime(seconds: number) {

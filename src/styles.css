@@ -458,7 +458,7 @@ button {
 
 .watch-grid {
   display: grid;
-  grid-template-columns: 285px minmax(380px, 1fr) 365px;
+  grid-template-columns: minmax(220px, 285px) minmax(320px, 1fr) minmax(300px, 365px);
   grid-template-rows: 126px 1fr 128px;
   gap: 16px;
 }
@@ -466,7 +466,7 @@ button {
 .space-import {
   grid-column: 1 / 4;
   display: grid;
-  grid-template-columns: minmax(250px, 1fr) minmax(460px, 1.6fr);
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.6fr);
   align-items: center;
   gap: 18px;
   padding: 18px 22px;
@@ -662,8 +662,12 @@ button {
 .player-card {
   grid-column: 2;
   grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-height: 0;
   padding: 14px;
+  overflow: hidden;
 }
 
 .player-card video,
@@ -671,8 +675,8 @@ button {
 .video-placeholder,
 .clip-box {
   width: 100%;
-  height: calc(100% - 90px);
-  min-height: 240px;
+  flex: 1 1 220px;
+  min-height: 0;
   border: 2px solid #1f2937;
   border-radius: 18px;
   background: #111827;
@@ -704,8 +708,9 @@ button {
 
 .subtitle-card {
   gap: 12px;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
   min-height: 72px;
-  margin-top: 12px;
   padding: 12px;
   border: 2px solid #c8efb3;
   border-radius: 16px;
@@ -713,7 +718,8 @@ button {
 }
 
 .subtitle-card p {
-  flex: 1;
+  flex: 1 1 180px;
+  min-width: 0;
   margin: 0;
   max-height: 54px;
   overflow: auto;
@@ -724,8 +730,10 @@ button {
 
 .subtitle-card button {
   display: inline-flex;
+  flex: 0 0 auto;
   gap: 7px;
   align-items: center;
+  justify-content: center;
   min-height: 38px;
   padding: 0 12px;
   border: 0;
@@ -734,6 +742,15 @@ button {
   background: var(--duo-blue);
   border-bottom: 4px solid #1889bd;
   font-weight: 950;
+  white-space: nowrap;
+}
+
+.playback-status {
+  display: block;
+  margin: 8px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .transcript-card {
