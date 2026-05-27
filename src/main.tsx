@@ -549,6 +549,7 @@ function WatchPage({
   aiProvider: AiProvider;
 }) {
   const [activeVideoId, setActiveVideoId] = React.useState(() => getLastWatchVideoId(videos));
+  const [explorerOpen, setExplorerOpen] = React.useState(() => !getLastWatchVideoId(videos));
   const [selectedFolder, setSelectedFolder] = React.useState("all");
   const [currentTime, setCurrentTime] = React.useState(0);
   const [playbackStatus, setPlaybackStatus] = React.useState("");
@@ -580,6 +581,7 @@ function WatchPage({
       : activeVideo.transcript
     : [];
   const isDialogueFilterActive = Boolean(filteredDialogueIds);
+  const showExplorer = !activeVideo || explorerOpen;
 
   React.useEffect(() => {
     if (activeVideoId && !videos.some((video) => video.id === activeVideoId)) {
@@ -802,7 +804,8 @@ function WatchPage({
   }
 
   return (
-    <div className="watch-grid">
+    <div className={`watch-grid ${showExplorer ? "" : "video-selected"}`}>
+      {showExplorer ? (
       <section className="video-list">
         <div className="section-head compact">
           <h2>Folders</h2>
@@ -828,7 +831,12 @@ function WatchPage({
         <div className="video-stack">
           {filteredVideos.map((video) => (
             <div key={video.id} className={`video-row ${video.id === activeVideoId ? "active" : ""}`}>
-              <button onClick={() => setActiveVideoId(video.id)}>
+              <button
+                onClick={() => {
+                  setActiveVideoId(video.id);
+                  setExplorerOpen(false);
+                }}
+              >
                 <div className="thumb">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" /> : <Film />}</div>
                 <span>{video.title}</span>
                 <small>{video.sourceType === "youtube" ? "YouTube" : `${Math.round(video.duration || 0)}s`}</small>
@@ -845,6 +853,7 @@ function WatchPage({
           ))}
         </div>
       </section>
+      ) : null}
 
       {activeVideo ? (
         <>
@@ -932,6 +941,9 @@ function WatchPage({
           </div>
         </div>
         <div className="subtitle-card">
+          <button className="ghost" onClick={() => setExplorerOpen(true)}>
+            <Video size={16} /> All Videos
+          </button>
           <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
             <Save size={16} /> Save Dialogue
           </button>

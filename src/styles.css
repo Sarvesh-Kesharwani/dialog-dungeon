@@ -514,6 +514,18 @@ button {
   gap: 16px;
 }
 
+.watch-grid.video-selected {
+  grid-template-columns: minmax(420px, 1fr) minmax(300px, 365px);
+}
+
+.watch-grid.video-selected .player-card {
+  grid-column: 1;
+}
+
+.watch-grid.video-selected .transcript-card {
+  grid-column: 2;
+}
+
 .space-import {
   grid-column: 1 / 4;
   display: grid;
@@ -966,6 +978,12 @@ button {
   border-bottom: 4px solid #1889bd;
   font-weight: 950;
   white-space: nowrap;
+}
+
+.subtitle-card button.ghost {
+  color: #1b9bd7;
+  background: #ddf4ff;
+  border-bottom-color: #84d8ff;
 }
 
 .playback-status {
