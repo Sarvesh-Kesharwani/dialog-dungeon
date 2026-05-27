@@ -69,6 +69,7 @@ button {
 .hero-panel,
 .space-import,
 .video-list,
+.watch-empty-state,
 .player-card,
 .transcript-card,
 .custom-card,
@@ -567,6 +568,38 @@ button {
   min-height: 0;
   padding: 14px;
   overflow: hidden;
+}
+
+.watch-empty-state {
+  grid-column: 2 / 4;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  min-height: 0;
+  padding: 28px;
+  text-align: center;
+}
+
+.watch-empty-state svg {
+  color: var(--duo-blue);
+}
+
+.watch-empty-state h2,
+.watch-empty-state p {
+  margin: 0;
+}
+
+.watch-empty-state h2 {
+  color: #2d3b45;
+  font-size: 28px;
+}
+
+.watch-empty-state p {
+  max-width: 320px;
+  color: var(--muted);
+  font-weight: 850;
+  line-height: 1.35;
 }
 
 .video-stack {
@@ -1593,6 +1626,10 @@ button {
     overflow: hidden;
   }
 
+  .duo-app.nav-collapsed {
+    grid-template-columns: 1fr;
+  }
+
   body {
     overflow: hidden;
   }
@@ -1650,6 +1687,7 @@ button {
   .right-rail,
   .space-import,
   .video-list,
+  .watch-empty-state,
   .player-card,
   .transcript-card,
   .custom-card,

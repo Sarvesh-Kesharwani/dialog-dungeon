@@ -27,8 +27,7 @@ import {
   Star,
   Trash2,
   Trophy,
-  Video,
-  Volume2
+  Video
 } from "lucide-react";
 import "./styles.css";
 
@@ -121,6 +120,7 @@ const defaultDialogueFilterPrompt =
 const defaultAiProvider: AiProvider = "youlearn";
 
 const defaultFolders: Folder[] = [{ id: "root", name: "All Dialogues", source: "local" }];
+const lastVideoKey = "dialogdungeon-last-video-id";
 
 const fallbackVideos: SpaceVideo[] = [
   {
@@ -171,9 +171,19 @@ function normalizeAiProvider(value: unknown): AiProvider {
   return value === "deepseek" ? "deepseek" : defaultAiProvider;
 }
 
+function getLastWatchVideoId(videos: SpaceVideo[]) {
+  const storedId = localStorage.getItem(lastVideoKey);
+  if (storedId && videos.some((video) => video.id === storedId)) return storedId;
+  return (
+    videos
+      .filter((video) => video.watchedAt || video.lastPosition)
+      .sort((a, b) => String(b.watchedAt || "").localeCompare(String(a.watchedAt || "")))[0]?.id ?? ""
+  );
+}
+
 function App() {
-  const [page, setPage] = React.useState<Page>("home");
-  const [navCollapsed, setNavCollapsed] = React.useState(false);
+  const [page, setPage] = React.useState<Page>("watch");
+  const [navCollapsed, setNavCollapsed] = React.useState(true);
   const [clientId] = React.useState(getClientId);
   const [videos, setVideos] = React.useState<SpaceVideo[]>(() => readJson("dialogdungeon-videos", fallbackVideos));
   const [folders, setFolders] = React.useState<Folder[]>(() => readJson("dialogdungeon-folders", defaultFolders));
@@ -538,7 +548,7 @@ function WatchPage({
   onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => void;
   aiProvider: AiProvider;
 }) {
-  const [activeVideoId, setActiveVideoId] = React.useState(videos[0]?.id ?? "");
+  const [activeVideoId, setActiveVideoId] = React.useState(() => getLastWatchVideoId(videos));
   const [selectedFolder, setSelectedFolder] = React.useState("all");
   const [currentTime, setCurrentTime] = React.useState(0);
   const [playbackStatus, setPlaybackStatus] = React.useState("");
@@ -555,22 +565,29 @@ function WatchPage({
 
   const filteredVideos =
     selectedFolder === "all" ? videos : videos.filter((video) => (video.folderId || "root") === selectedFolder);
-  const activeVideo = videos.find((video) => video.id === activeVideoId) ?? filteredVideos[0] ?? videos[0] ?? fallbackVideos[0];
+  const activeVideo = videos.find((video) => video.id === activeVideoId);
   const activeSegment =
-    activeVideo.transcript
+    activeVideo?.transcript
       .slice()
       .reverse()
-      .find((segment) => segment.startTime <= currentTime) ?? activeVideo.transcript[0];
-  const isYouTube = isYouTubeUrl(activeVideo.contentUrl);
-  const transcriptSignature = buildTranscriptSignature(activeVideo.transcript);
-  const filterCacheId = buildDialogueFilterId(activeVideo.id, transcriptSignature, dialogueFilterPrompt);
-  const visibleTranscript = filteredDialogueIds
-    ? activeVideo.transcript.filter((segment) => filteredDialogueIds.has(segment.id))
-    : activeVideo.transcript;
+      .find((segment) => segment.startTime <= currentTime) ?? activeVideo?.transcript[0];
+  const isYouTube = activeVideo ? isYouTubeUrl(activeVideo.contentUrl) : false;
+  const transcriptSignature = activeVideo ? buildTranscriptSignature(activeVideo.transcript) : "";
+  const filterCacheId = activeVideo ? buildDialogueFilterId(activeVideo.id, transcriptSignature, dialogueFilterPrompt) : "";
+  const visibleTranscript = activeVideo
+    ? filteredDialogueIds
+      ? activeVideo.transcript.filter((segment) => filteredDialogueIds.has(segment.id))
+      : activeVideo.transcript
+    : [];
   const isDialogueFilterActive = Boolean(filteredDialogueIds);
 
   React.useEffect(() => {
-    if (!activeVideoId && videos[0]) setActiveVideoId(videos[0].id);
+    if (activeVideoId && !videos.some((video) => video.id === activeVideoId)) {
+      localStorage.removeItem(lastVideoKey);
+      setActiveVideoId("");
+      return;
+    }
+    if (!activeVideoId) setActiveVideoId(getLastWatchVideoId(videos));
   }, [activeVideoId, videos]);
 
   React.useEffect(() => {
@@ -580,6 +597,9 @@ function WatchPage({
   }, [activeSegment?.id]);
 
   React.useEffect(() => {
+    if (!activeVideo) return;
+    localStorage.setItem(lastVideoKey, activeVideo.id);
+    setCurrentTime(activeVideo.lastPosition ?? 0);
     if (videoRef.current) {
       videoRef.current.muted = false;
       videoRef.current.defaultMuted = false;
@@ -590,7 +610,7 @@ function WatchPage({
     setDialogueTranslation(null);
     setFilteredDialogueIds(null);
     setFilterStatus("");
-  }, [activeVideo.id]);
+  }, [activeVideo?.id]);
 
   React.useEffect(() => {
     setDialogueTranslation(null);
@@ -607,7 +627,7 @@ function WatchPage({
 
   React.useEffect(() => {
     function toggleWithSpace(event: KeyboardEvent) {
-      if (event.code !== "Space" || isYouTube || !activeVideo.contentUrl) return;
+      if (event.code !== "Space" || isYouTube || !activeVideo?.contentUrl) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
       event.preventDefault();
@@ -616,7 +636,7 @@ function WatchPage({
 
     window.addEventListener("keydown", toggleWithSpace);
     return () => window.removeEventListener("keydown", toggleWithSpace);
-  }, [activeVideo.contentUrl, isYouTube]);
+  }, [activeVideo?.contentUrl, isYouTube]);
 
   function renameVideo(video: SpaceVideo) {
     const next = window.prompt("Rename video", video.title)?.trim();
@@ -646,22 +666,8 @@ function WatchPage({
     }
   }
 
-  async function enableVideoAudio() {
-    if (!videoRef.current) return;
-    const player = videoRef.current;
-    player.muted = false;
-    player.defaultMuted = false;
-    player.volume = 1;
-    try {
-      await player.play();
-      setIsPaused(false);
-      setPlaybackStatus("Sound on. Video playing.");
-    } catch (error) {
-      setPlaybackStatus(error instanceof Error ? error.message : "Use the video controls to start playback.");
-    }
-  }
-
   function markWatched(time: number) {
+    if (!activeVideo) return;
     setCurrentTime(time);
     setVideos((current) =>
       current.map((video) =>
@@ -734,6 +740,7 @@ function WatchPage({
   }
 
   async function toggleDialogueFilter() {
+    if (!activeVideo) return;
     if (filteredDialogueIds) {
       setFilteredDialogueIds(null);
       setFilterStatus("");
@@ -820,7 +827,7 @@ function WatchPage({
         <h2>Videos</h2>
         <div className="video-stack">
           {filteredVideos.map((video) => (
-            <div key={video.id} className={`video-row ${video.id === activeVideo.id ? "active" : ""}`}>
+            <div key={video.id} className={`video-row ${video.id === activeVideoId ? "active" : ""}`}>
               <button onClick={() => setActiveVideoId(video.id)}>
                 <div className="thumb">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" /> : <Film />}</div>
                 <span>{video.title}</span>
@@ -839,6 +846,8 @@ function WatchPage({
         </div>
       </section>
 
+      {activeVideo ? (
+        <>
       <section className="player-card">
         <div className={`player-frame ${isPaused ? "is-paused" : ""}`} ref={playerFrameRef}>
           {activeVideo.contentUrl ? (
@@ -926,12 +935,6 @@ function WatchPage({
           </div>
         </div>
         <div className="subtitle-card">
-          <Volume2 size={22} />
-          {!isYouTube && activeVideo.contentUrl ? (
-            <button onClick={enableVideoAudio}>
-              <Volume2 size={16} /> Sound On
-            </button>
-          ) : null}
           <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
             <Save size={16} /> Save Dialogue
           </button>
@@ -988,6 +991,14 @@ function WatchPage({
           <span>saved from this video</span>
         </div>
       </section>
+        </>
+      ) : (
+        <section className="watch-empty-state">
+          <Video size={42} />
+          <h2>Select a video</h2>
+          <p>Choose one from the list to open the player and dialogues.</p>
+        </section>
+      )}
     </div>
   );
 }
