@@ -171,6 +171,39 @@ function normalizeAiProvider(value: unknown): AiProvider {
   return value === "deepseek" ? "deepseek" : defaultAiProvider;
 }
 
+function fallbackSavedTranslation(text: string) {
+  return {
+    promptResult: toHinglishHint(text),
+    hinglish: toHinglishHint(text),
+    english: text
+  };
+}
+
+async function fetchDialogueTranslation(text: string, provider: AiProvider, prompt: string) {
+  try {
+    const response = await fetch("/api/dialogue-transform", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dialogue: text,
+        mode: "Hinglish + English",
+        prompt: prompt || defaultPrompt,
+        provider
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error || "Translation failed");
+    const fallback = fallbackSavedTranslation(text);
+    return {
+      promptResult: data.result || data.hinglish || fallback.promptResult,
+      hinglish: data.hinglish || data.result || fallback.hinglish,
+      english: data.english || fallback.english
+    };
+  } catch {
+    return fallbackSavedTranslation(text);
+  }
+}
+
 function getLastWatchVideoId(videos: SpaceVideo[]) {
   const storedId = localStorage.getItem(lastVideoKey);
   if (storedId && videos.some((video) => video.id === storedId)) return storedId;
@@ -275,14 +308,19 @@ function App() {
       (item) => item.videoId === video.id && item.startTime === segment.startTime && item.text === segment.text
     );
     if (exists) return;
+    const id = `${Date.now()}-${segment.id}`;
+    const fallback = fallbackSavedTranslation(segment.text);
     setSavedDialogues((current) => [
       {
-        id: `${Date.now()}-${segment.id}`,
+        id,
         videoId: video.id,
         videoTitle: video.title,
         videoUrl: video.contentUrl,
         startTime: segment.startTime,
         text: segment.text,
+        promptResult: fallback.hinglish,
+        hinglish: fallback.hinglish,
+        english: fallback.english,
         bucket: 1,
         correctCount: 0,
         missCount: 0,
@@ -290,6 +328,11 @@ function App() {
       },
       ...current
     ]);
+    fetchDialogueTranslation(segment.text, aiProvider, prompt).then((translation) => {
+      setSavedDialogues((current) =>
+        current.map((item) => (item.id === id ? { ...item, ...translation } : item))
+      );
+    });
   }
 
   function updateDialogue(updated: SavedDialogue) {
@@ -1351,36 +1394,19 @@ function GraphPage({
     previewRef.current.volume = 1;
   }, [clipStart, previewUrl]);
 
-  async function fetchHinglish(dialogue: SavedDialogue) {
-    const video = videos.find((item) => item.id === dialogue.videoId);
+  async function fetchLibraryTranslation(dialogue: SavedDialogue) {
     setSelectedId(dialogue.id);
     setChatLoadingId(dialogue.id);
-    setLibraryStatus(aiProvider === "deepseek" ? "Asking DeepSeek..." : "Asking YouLearn chat...");
+    setLibraryStatus("Translating dialogue...");
     try {
-      const response = await fetch("/api/youlearn-chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dialogue: dialogue.text,
-          videoTitle: dialogue.videoTitle,
-          videoId: dialogue.videoId,
-          contentId: dialogue.videoId,
-          spaceId: extractYoulearnSpaceId(video?.folderId),
-          startTime: dialogue.startTime,
-          transcript: video?.transcript ?? [],
-          provider: aiProvider
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || "YouLearn chat failed");
+      const translation = await fetchDialogueTranslation(dialogue.text, aiProvider, defaultPrompt);
       onUpdateDialogue({
         ...dialogue,
-        promptResult: data.result || data.hinglish || "Fetched from YouLearn.",
-        hinglish: data.hinglish || data.result || dialogue.hinglish
+        ...translation
       });
-      setLibraryStatus(aiProvider === "deepseek" ? "Hinglish fetched from DeepSeek." : "Hinglish fetched from YouLearn.");
+      setLibraryStatus("Translation saved.");
     } catch (error) {
-      setLibraryStatus(error instanceof Error ? error.message : "YouLearn chat failed.");
+      setLibraryStatus(error instanceof Error ? error.message : "Translation failed.");
     } finally {
       setChatLoadingId("");
     }
@@ -1417,17 +1443,26 @@ function GraphPage({
                 ) : (
                   <strong>{dialogue.text}</strong>
                 )}
-                {dialogue.hinglish || dialogue.english ? <span>{dialogue.hinglish || dialogue.english}</span> : null}
+                {dialogue.hinglish ? (
+                  <span className="translation-line">
+                    <b>Hinglish</b> {dialogue.hinglish}
+                  </span>
+                ) : null}
+                {dialogue.english ? (
+                  <span className="translation-line">
+                    <b>English</b> {dialogue.english}
+                  </span>
+                ) : null}
               </div>
               <div className="row-actions">
                 <button
                   className="ai-action"
-                  title="Fetch Hinglish from YouLearn"
-                  aria-label="Fetch Hinglish from YouLearn"
+                  title="Translate dialogue"
+                  aria-label="Translate dialogue"
                   disabled={chatLoadingId === dialogue.id}
                   onClick={(event) => {
                     event.stopPropagation();
-                    fetchHinglish(dialogue);
+                    fetchLibraryTranslation(dialogue);
                   }}
                 >
                   {chatLoadingId === dialogue.id ? <Loader2 className="spin" size={14} /> : <Languages size={14} />}
@@ -1606,11 +1641,6 @@ function normalizeImportedVideos(spaceId: string, rawVideos: SpaceVideo[]) {
     folderId: video.folderId ? `yl-${spaceId}-${video.folderId}` : `yl-${spaceId}-root`,
     folderName: video.folderName || "YouLearn Import"
   }));
-}
-
-function extractYoulearnSpaceId(folderId?: string) {
-  const match = String(folderId || "").match(/^yl-([A-Za-z0-9_]+)(?:-|$)/);
-  return match?.[1] ?? "";
 }
 
 function parseSrt(input: string): TranscriptSegment[] {

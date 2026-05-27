@@ -1533,6 +1533,15 @@ button {
   line-height: 1.3;
 }
 
+.saved-dialogue-row .translation-line {
+  color: #52606d;
+}
+
+.saved-dialogue-row .translation-line b {
+  color: #1899d6;
+  font-weight: 950;
+}
+
 .saved-dialogue-row input {
   width: 100%;
   min-height: 38px;
