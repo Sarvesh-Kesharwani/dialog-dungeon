@@ -3,884 +3,794 @@ import ReactDOM from "react-dom/client";
 import {
   BarChart3,
   BookOpen,
-  Bot,
-  Check,
-  ChevronDown,
-  Clapperboard,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardEdit,
+  Dumbbell,
+  Film,
   Flame,
   Home,
-  MessageCircle,
-  Pencil,
+  Languages,
+  Link,
+  Loader2,
   Play,
-  RotateCcw,
+  Plus,
   Save,
   Send,
-  Settings,
-  SlidersHorizontal,
   Sparkles,
   Star,
   Trash2,
   Trophy,
-  Video,
-  X
+  Video
 } from "lucide-react";
 import "./styles.css";
 
-type MistakeType = "Vocabulary" | "Phrase" | "Proverb" | "Article" | "Grammar";
+type Page = "home" | "watch" | "practice" | "graph";
 
-type SceneResult = {
-  movie: string;
-  scene: string;
-  title: string;
-  paragraph: string;
-  sceneBeats: string[];
-  toneWords: string[];
-  webContextUsed: boolean;
-};
-
-type Mistake = {
+type TranscriptSegment = {
   id: string;
-  type: MistakeType;
-  label: string;
-  userText: string;
-  suggestion: string;
-  why: string;
-  memoryCue: string;
-  movie: string;
-  scene: string;
-  sourceParagraph: string;
-  userTranslation: string;
+  startTime: number;
+  text: string;
+  custom?: boolean;
+};
+
+type SpaceVideo = {
+  id: string;
+  title: string;
+  contentUrl: string;
+  thumbnailUrl?: string;
+  duration: number;
+  transcript: TranscriptSegment[];
+};
+
+type SavedDialogue = {
+  id: string;
+  videoId: string;
+  videoTitle: string;
+  videoUrl?: string;
+  startTime: number;
+  text: string;
+  promptResult?: string;
+  hinglish?: string;
+  english?: string;
+  bucket: number;
+  correctCount: number;
+  missCount: number;
+  lastPracticed?: string;
   createdAt: string;
-  favorite?: boolean;
 };
 
-type ReviewResult = {
-  overall: string;
-  improvedTranslation: string;
-  mistakes: Omit<Mistake, "movie" | "scene" | "sourceParagraph" | "userTranslation" | "createdAt">[];
+type DailyScore = {
+  date: string;
+  attempted: number;
+  totalScore: number;
 };
 
-const movies = [
-  "3 Idiots (2009)",
-  "Taare Zameen Par (2007)",
-  "Dangal (2016)",
-  "Lagaan (2001)",
-  "The Pursuit of Happyness"
-];
+const defaultPrompt =
+  "Explain this movie dialogue in Hinglish, then give a natural English version. Keep it short and learner friendly.";
 
-const scenes = [
-  "Ranchoddas Speech",
-  "Ishaan's Painting",
-  "Training Montage",
-  "Climax Decision",
-  "Father-Son Talk"
-];
-
-const tabs: MistakeType[] = ["Vocabulary", "Phrase", "Proverb", "Article", "Grammar"];
-
-const tabLabels: Record<MistakeType, string> = {
-  Vocabulary: "Vocabulary",
-  Phrase: "Phrases",
-  Proverb: "Proverbs",
-  Article: "Articles",
-  Grammar: "Grammar"
-};
-
-const typeColors: Record<MistakeType, string> = {
-  Vocabulary: "green",
-  Phrase: "purple",
-  Proverb: "amber",
-  Article: "blue",
-  Grammar: "violet"
-};
-
-const seedMistakes: Mistake[] = [
+const fallbackVideos: SpaceVideo[] = [
   {
-    id: "seed-1",
-    type: "Article",
-    label: "Missing article",
-    userText: "He tells Farhan that life is not a race.",
-    suggestion: "He tells Farhan that life is not a race.",
-    why: "Use article 'a' before 'race' (a race).",
-    memoryCue: "a race",
-    movie: "3 Idiots (2009)",
-    scene: "Ranchoddas Speech",
-    sourceParagraph: "Rancho Farhan ko samjhata hai ki life race nahi hai.",
-    userTranslation: "He tells Farhan that life is not race.",
-    createdAt: "Today, 10:35 AM"
+    id: "demo-3idiots",
+    title: "3 Idiots - Ranchoddas Speech",
+    contentUrl: "",
+    thumbnailUrl: "",
+    duration: 132,
+    transcript: [
+      { id: "d1", startTime: 0, text: "Life is not a race, Farhan." },
+      { id: "d2", startTime: 8, text: "Do what your heart understands, not what fear demands." },
+      { id: "d3", startTime: 18, text: "If you follow your passion, success will follow you." },
+      { id: "d4", startTime: 31, text: "Your dream deserves courage, not permission." }
+    ]
   },
   {
-    id: "seed-2",
-    type: "Vocabulary",
-    label: "Plural word choice",
-    userText: "We should follow our passion and do what we love.",
-    suggestion: "We should follow our passions and do what we love.",
-    why: "Use plural 'passions' to sound more natural.",
-    memoryCue: "passions",
-    movie: "3 Idiots (2009)",
-    scene: "Ranchoddas Speech",
-    sourceParagraph: "Apni khushi aur passion ko follow karo.",
-    userTranslation: "We should follow our passion.",
-    createdAt: "Today, 10:35 AM",
-    favorite: true
-  },
-  {
-    id: "seed-3",
-    type: "Vocabulary",
-    label: "Word Choice",
-    userText: "Then we can be happy and successful.",
-    suggestion: "Then we can be happy and successful.",
-    why: "Better word choice for stronger impact.",
-    memoryCue: "successful",
-    movie: "3 Idiots (2009)",
-    scene: "Ranchoddas Speech",
-    sourceParagraph: "Tabhi tum sach mein successful aur khush rahoge.",
-    userTranslation: "Then we can be happy and successful.",
-    createdAt: "Today, 10:35 AM"
-  },
-  {
-    id: "seed-4",
-    type: "Phrase",
-    label: "Natural phrase",
-    userText: "Ishaan was very sad because nobody understood him.",
-    suggestion: "Ishaan was very upset because no one understood him.",
-    why: "Use 'no one' instead of 'nobody' in this sentence.",
-    memoryCue: "no one understood",
-    movie: "Taare Zameen Par (2007)",
-    scene: "Ishaan's Painting",
-    sourceParagraph: "Ishaan dukhi tha kyunki koi usko samajh nahi raha tha.",
-    userTranslation: "Ishaan was very sad because nobody understood him.",
-    createdAt: "Yesterday, 8:20 PM"
+    id: "demo-taare",
+    title: "Taare Zameen Par - Teacher Understands Ishaan",
+    contentUrl: "",
+    thumbnailUrl: "",
+    duration: 98,
+    transcript: [
+      { id: "t1", startTime: 0, text: "Every child has a different rhythm." },
+      { id: "t2", startTime: 9, text: "He is not lazy; he is trying to survive a world that does not see him." },
+      { id: "t3", startTime: 22, text: "Sometimes a little patience becomes a bridge." }
+    ]
   }
 ];
+
+function readJson<T>(key: string, fallback: T): T {
+  const stored = localStorage.getItem(key);
+  if (!stored) return fallback;
+  try {
+    return JSON.parse(stored) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function extractSpaceId(value: string) {
+  const match = value.match(/space\/([a-zA-Z0-9_-]+)/) ?? value.match(/^([a-zA-Z0-9_-]{8,})$/);
+  return match?.[1] ?? "";
+}
 
 function App() {
-  const [page, setPage] = React.useState<"home" | "graph">("home");
-  const [movie, setMovie] = React.useState(movies[0]);
-  const [scene, setScene] = React.useState(scenes[0]);
-  const [language, setLanguage] = React.useState<"Hinglish" | "Hindi">("Hinglish");
-  const [sceneResult, setSceneResult] = React.useState<SceneResult | null>({
-    movie: movies[0],
-    scene: scenes[0],
-    title: "3 Idiots: Ranchoddas Speech",
-    paragraph:
-      "Is scene mein Rancho apne dost Farhan ko motivate karta hai jab wo apne sapno ko lekar confuse hota hai. Rancho kehta hai ki life race nahi hai, balki apni khushi aur passion ko samajhna important hai. Wo Farhan ko batata hai ki agar tumhe kisi cheez mein interest hai, toh usse dil se karo, tabhi tum sach mein successful aur khush rahoge.",
-    sceneBeats: ["friendship", "motivation", "career choice", "self-belief"],
-    toneWords: ["warm", "honest", "hopeful"],
-    webContextUsed: false
-  });
-  const [translation, setTranslation] = React.useState(
-    "He tells Farhan that life is not a race. We should follow our passion and do what we love. Then we can be happy and successful."
+  const [page, setPage] = React.useState<Page>("home");
+  const [videos, setVideos] = React.useState<SpaceVideo[]>(() =>
+    readJson("dialogdungeon-videos", fallbackVideos)
   );
-  const [review, setReview] = React.useState<ReviewResult | null>(null);
-  const [activeTab, setActiveTab] = React.useState<MistakeType>("Vocabulary");
-  const [mistakes, setMistakes] = React.useState<Mistake[]>(() => {
-    const stored = localStorage.getItem("dialogdungeon-mistakes");
-    if (!stored) return seedMistakes;
-    try {
-      return JSON.parse(stored) as Mistake[];
-    } catch {
-      return seedMistakes;
-    }
-  });
-  const [loadingScene, setLoadingScene] = React.useState(false);
-  const [loadingReview, setLoadingReview] = React.useState(false);
+  const [savedDialogues, setSavedDialogues] = React.useState<SavedDialogue[]>(() =>
+    readJson("dialogdungeon-dialogues", [])
+  );
+  const [scores, setScores] = React.useState<DailyScore[]>(() => readJson("dialogdungeon-scores", []));
+  const [prompt, setPrompt] = React.useState(() => localStorage.getItem("dialogdungeon-prompt") || defaultPrompt);
 
-  React.useEffect(() => {
-    localStorage.setItem("dialogdungeon-mistakes", JSON.stringify(mistakes));
-  }, [mistakes]);
+  React.useEffect(() => localStorage.setItem("dialogdungeon-videos", JSON.stringify(videos)), [videos]);
+  React.useEffect(
+    () => localStorage.setItem("dialogdungeon-dialogues", JSON.stringify(savedDialogues)),
+    [savedDialogues]
+  );
+  React.useEffect(() => localStorage.setItem("dialogdungeon-scores", JSON.stringify(scores)), [scores]);
+  React.useEffect(() => localStorage.setItem("dialogdungeon-prompt", prompt), [prompt]);
 
-  const stats = React.useMemo(() => {
-    const byType = tabs.map((type) => ({
-      type,
-      count: mistakes.filter((item) => item.type === type).length
-    }));
-    return {
-      total: mistakes.length,
-      byType,
-      score: 165420,
-      goal: 28,
-      movies: new Set(mistakes.map((item) => item.movie)).size
-    };
-  }, [mistakes]);
-
-  async function fetchScene() {
-    setLoadingScene(true);
-    setReview(null);
-    try {
-      const response = await fetch("/api/scene", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ movie, scene, language })
-      });
-      const data = (await response.json()) as SceneResult;
-      setSceneResult(data);
-      setTranslation("");
-    } finally {
-      setLoadingScene(false);
-    }
-  }
-
-  async function reviewTranslation() {
-    if (!sceneResult || !translation.trim()) return;
-    setLoadingReview(true);
-    try {
-      const response = await fetch("/api/review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          movie,
-          scene,
-          sourceParagraph: sceneResult.paragraph,
-          userTranslation: translation
-        })
-      });
-      const data = (await response.json()) as ReviewResult;
-      setReview(data);
-      const saved = data.mistakes.map((item) => ({
-        ...item,
-        movie,
-        scene,
-        sourceParagraph: sceneResult.paragraph,
-        userTranslation: translation,
-        createdAt: new Date().toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit"
-        })
-      }));
-      setMistakes((current) => [...saved, ...current]);
-      setActiveTab(saved[0]?.type ?? "Vocabulary");
-    } finally {
-      setLoadingReview(false);
-    }
-  }
-
-  function updateMistake(updated: Mistake) {
-    setMistakes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
-  }
-
-  function deleteMistake(id: string) {
-    setMistakes((current) => current.filter((item) => item.id !== id));
-  }
-
-  function toggleFavorite(id: string) {
-    setMistakes((current) =>
-      current.map((item) => (item.id === id ? { ...item, favorite: !item.favorite } : item))
+  function saveDialogue(video: SpaceVideo, segment: TranscriptSegment) {
+    const exists = savedDialogues.some(
+      (item) => item.videoId === video.id && item.startTime === segment.startTime && item.text === segment.text
     );
+    if (exists) return;
+    setSavedDialogues((current) => [
+      {
+        id: `${Date.now()}-${segment.id}`,
+        videoId: video.id,
+        videoTitle: video.title,
+        videoUrl: video.contentUrl,
+        startTime: segment.startTime,
+        text: segment.text,
+        bucket: 1,
+        correctCount: 0,
+        missCount: 0,
+        createdAt: new Date().toISOString()
+      },
+      ...current
+    ]);
   }
+
+  function updateDialogue(updated: SavedDialogue) {
+    setSavedDialogues((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+  }
+
+  function deleteDialogue(id: string) {
+    setSavedDialogues((current) => current.filter((item) => item.id !== id));
+  }
+
+  function recordPractice(score: number, dialogue: SavedDialogue) {
+    const date = todayKey();
+    setScores((current) => {
+      const existing = current.find((item) => item.date === date);
+      if (!existing) return [{ date, attempted: 1, totalScore: score }, ...current];
+      return current.map((item) =>
+        item.date === date
+          ? { ...item, attempted: item.attempted + 1, totalScore: item.totalScore + score }
+          : item
+      );
+    });
+
+    const passed = score >= 80;
+    updateDialogue({
+      ...dialogue,
+      bucket: passed ? Math.min(dialogue.bucket + 1, 5) : Math.max(dialogue.bucket - 1, 1),
+      correctCount: dialogue.correctCount + (passed ? 1 : 0),
+      missCount: dialogue.missCount + (passed ? 0 : 1),
+      lastPracticed: date
+    });
+  }
+
+  const todayScore = scores.find((item) => item.date === todayKey());
 
   return (
-    <main className="app-shell">
-      <TopBar page={page} onPageChange={setPage} stats={stats} />
-      {page === "home" ? (
-        <section className="workspace" aria-label="DialogDungeon learning workspace">
-          <ChatPanel
-            movie={movie}
-            scene={scene}
-            language={language}
-            sceneResult={sceneResult}
-            translation={translation}
-            review={review}
-            loadingScene={loadingScene}
-            loadingReview={loadingReview}
-            onMovieChange={setMovie}
-            onSceneChange={setScene}
-            onLanguageChange={setLanguage}
-            onFetchScene={fetchScene}
-            onTranslationChange={setTranslation}
-            onReviewTranslation={reviewTranslation}
+    <main className="duo-app">
+      <SideNav page={page} onPage={setPage} savedCount={savedDialogues.length} />
+      <section className="duo-main">
+        {page === "home" ? (
+          <HomePage
+            videos={videos}
+            savedDialogues={savedDialogues}
+            todayScore={todayScore}
+            onPage={setPage}
           />
-          <LearningPanel
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            mistakes={mistakes}
-            stats={stats}
-            onUpdateMistake={updateMistake}
-            onDeleteMistake={deleteMistake}
-            onToggleFavorite={toggleFavorite}
+        ) : null}
+        {page === "watch" ? (
+          <WatchPage
+            videos={videos}
+            setVideos={setVideos}
+            savedDialogues={savedDialogues}
+            onSaveDialogue={saveDialogue}
+            prompt={prompt}
+            setPrompt={setPrompt}
+            onUpdateDialogue={updateDialogue}
           />
-        </section>
-      ) : (
-        <GraphView stats={stats} mistakes={mistakes} onBack={() => setPage("home")} />
-      )}
+        ) : null}
+        {page === "practice" ? (
+          <PracticePage
+            savedDialogues={savedDialogues}
+            onRecord={recordPractice}
+            videos={videos}
+            prompt={prompt}
+          />
+        ) : null}
+        {page === "graph" ? (
+          <GraphPage
+            savedDialogues={savedDialogues}
+            scores={scores}
+            onUpdateDialogue={updateDialogue}
+            onDeleteDialogue={deleteDialogue}
+          />
+        ) : null}
+      </section>
     </main>
   );
 }
 
-function TopBar({
-  page,
-  onPageChange,
-  stats
-}: {
-  page: "home" | "graph";
-  onPageChange: (page: "home" | "graph") => void;
-  stats: { total: number; score: number; goal: number };
-}) {
+function SideNav({ page, onPage, savedCount }: { page: Page; onPage: (page: Page) => void; savedCount: number }) {
+  const items: { page: Page; label: string; icon: React.ReactNode }[] = [
+    { page: "home", label: "Home", icon: <Home size={21} /> },
+    { page: "watch", label: "Watch", icon: <Video size={21} /> },
+    { page: "practice", label: "Practice", icon: <Dumbbell size={21} /> },
+    { page: "graph", label: "Library", icon: <BarChart3 size={21} /> }
+  ];
+
   return (
-    <header className="topbar">
-      <div className="brand">
-        <img className="brand-logo" src="/dialog-dungeon-logo.svg" alt="DialogDungeon" />
-        <h1>
-          Dialog<span>Dungeon</span>
-        </h1>
-      </div>
-
-      <nav className="nav-tabs" aria-label="Primary">
-        <button className={page === "home" ? "active" : ""} onClick={() => onPageChange("home")}>
-          <Home size={22} />
-          Home
-        </button>
-        <button className={page === "graph" ? "active" : ""} onClick={() => onPageChange("graph")}>
-          <BarChart3 size={22} />
-          Vocab Graph
-        </button>
-      </nav>
-
-      <div className="top-stats">
-        <StatCard
-          icon={<Trophy size={25} />}
-          label="Learning Score"
-          value={stats.score.toLocaleString()}
-          meta="+ 12.5%"
-          tone="gold"
-        />
-        <StatCard
-          icon={<Star size={27} />}
-          label="Today's Goal"
-          value={`${stats.goal}`}
-          suffix="/ 35 min"
-          tone="star"
-          progress
-        />
-        <StatCard icon={<Flame size={25} />} label="Streak" value="7" suffix="days" tone="flame" />
-        <div className="profile-avatar" aria-label="Learner avatar">
-          <span />
+    <aside className="side-nav">
+      <div className="duo-brand">
+        <div className="owl">D</div>
+        <div>
+          <strong>DialogDungeon</strong>
+          <span>Duolingo mode</span>
         </div>
       </div>
-    </header>
+      <nav>
+        {items.map((item) => (
+          <button
+            key={item.page}
+            className={page === item.page ? "active" : ""}
+            onClick={() => onPage(item.page)}
+          >
+            {item.icon}
+            {item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="streak-card">
+        <Flame size={24} />
+        <strong>{savedCount}</strong>
+        <span>saved lines</span>
+      </div>
+    </aside>
   );
 }
 
-function StatCard({
-  icon,
-  label,
-  value,
-  suffix,
-  meta,
-  tone,
-  progress
+function HomePage({
+  videos,
+  savedDialogues,
+  todayScore,
+  onPage
 }: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  suffix?: string;
-  meta?: string;
-  tone: string;
-  progress?: boolean;
+  videos: SpaceVideo[];
+  savedDialogues: SavedDialogue[];
+  todayScore?: DailyScore;
+  onPage: (page: Page) => void;
 }) {
+  const avg = todayScore ? Math.round(todayScore.totalScore / Math.max(1, todayScore.attempted)) : 0;
   return (
-    <div className={`stat-card ${tone}`}>
-      <div className="stat-icon">{icon}</div>
-      <div>
-        <span>{label}</span>
-        <strong>
-          {value} {suffix ? <small>{suffix}</small> : null}
-        </strong>
+    <div className="home-grid">
+      <section className="hero-panel">
+        <div>
+          <p>Movie dialogue gym</p>
+          <h1>Watch. Save. Translate. Level up.</h1>
+          <span>
+            Import YouLearn spaces, save hard dialogues, and drill five lines daily with spaced
+            repetition.
+          </span>
+          <div className="hero-actions">
+            <button onClick={() => onPage("watch")}>
+              <Play size={18} /> Start watching
+            </button>
+            <button className="ghost" onClick={() => onPage("practice")}>
+              <Dumbbell size={18} /> Today&apos;s test
+            </button>
+          </div>
+        </div>
+        <div className="duo-mascot">
+          <div className="face" />
+          <strong>5</strong>
+          <span>daily dialogues</span>
+        </div>
+      </section>
+
+      <div className="stats-row">
+        <StatTile icon={<Film />} label="Videos" value={videos.length} />
+        <StatTile icon={<BookOpen />} label="Saved Dialogues" value={savedDialogues.length} />
+        <StatTile icon={<Trophy />} label="Today Avg" value={`${avg}%`} />
       </div>
-      {meta ? <em>{meta}</em> : null}
-      {progress ? <i /> : null}
+
+      <section className="lesson-path">
+        {[1, 2, 3, 4, 5].map((step) => (
+          <button key={step} className={step <= Math.min(5, savedDialogues.length) ? "done" : ""}>
+            {step <= Math.min(5, savedDialogues.length) ? <CheckCircle2 /> : <Star />}
+            <span>Set {step}</span>
+          </button>
+        ))}
+      </section>
+
+      <section className="right-rail">
+        <h2>Hardest queue</h2>
+        {savedDialogues
+          .slice()
+          .sort((a, b) => a.bucket - b.bucket || b.missCount - a.missCount)
+          .slice(0, 5)
+          .map((dialogue) => (
+            <div className="queue-card" key={dialogue.id}>
+              <strong>{dialogue.text}</strong>
+              <span>Set {dialogue.bucket} / misses {dialogue.missCount}</span>
+            </div>
+          ))}
+      </section>
     </div>
   );
 }
 
-function ChatPanel(props: {
-  movie: string;
-  scene: string;
-  language: "Hinglish" | "Hindi";
-  sceneResult: SceneResult | null;
-  translation: string;
-  review: ReviewResult | null;
-  loadingScene: boolean;
-  loadingReview: boolean;
-  onMovieChange: (movie: string) => void;
-  onSceneChange: (scene: string) => void;
-  onLanguageChange: (language: "Hinglish" | "Hindi") => void;
-  onFetchScene: () => void;
-  onTranslationChange: (value: string) => void;
-  onReviewTranslation: () => void;
-}) {
+function StatTile({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
   return (
-    <section className="panel chat-panel">
-      <div className="setup-card">
-        <h2>1. Choose Movie &amp; Scene</h2>
-        <div className="select-grid">
-          <label className="select-shell">
-            <Clapperboard size={32} />
-            <span>Movie</span>
-            <select value={props.movie} onChange={(event) => props.onMovieChange(event.target.value)}>
-              {movies.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            <ChevronDown size={18} />
-          </label>
-          <label className="select-shell">
-            <Video size={32} />
-            <span>Scene</span>
-            <select value={props.scene} onChange={(event) => props.onSceneChange(event.target.value)}>
-              {scenes.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            <ChevronDown size={18} />
-          </label>
-        </div>
-
-        <h2>2. Choose Language for Explanation</h2>
-        <div className="language-row">
-          {(["Hindi", "Hinglish"] as const).map((item) => (
-            <button
-              key={item}
-              className={props.language === item ? "active" : ""}
-              onClick={() => props.onLanguageChange(item)}
-            >
-              {item}
-              {props.language === item ? <Check size={18} /> : null}
-            </button>
-          ))}
-          <button className="fetch-scene" onClick={props.onFetchScene} disabled={props.loadingScene}>
-            <Play size={18} />
-            {props.loadingScene ? "Fetching" : "Fetch Scene"}
-          </button>
-        </div>
-      </div>
-
-      <div className="chat-stream">
-        <SceneBubble role="assistant" icon="learner" text={props.sceneResult?.paragraph ?? ""} time="10:32 AM" />
-        {props.translation ? (
-          <SceneBubble role="user" icon="learner" text={props.translation} time="10:35 AM" />
-        ) : null}
-        <SceneBubble
-          role="assistant"
-          icon="bot"
-          text={
-            props.review
-              ? `${props.review.overall} I saved the issues on the right.`
-              : "Great! Translation review ready."
-          }
-          time="10:35 AM"
-        />
-      </div>
-
-      <div className="composer">
-        <textarea
-          value={props.translation}
-          onChange={(event) => props.onTranslationChange(event.target.value)}
-          placeholder="Type your English translation here..."
-          disabled={!props.sceneResult}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              props.onReviewTranslation();
-            }
-          }}
-        />
-        <button
-          className="send-btn"
-          onClick={props.onReviewTranslation}
-          disabled={!props.sceneResult || !props.translation.trim() || props.loadingReview}
-          aria-label="Review translation"
-        >
-          <Send size={24} />
-        </button>
-      </div>
-    </section>
+    <div className="stat-tile">
+      {icon}
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 
-function SceneBubble({
-  role,
-  icon,
-  text,
-  time
+function WatchPage({
+  videos,
+  setVideos,
+  savedDialogues,
+  onSaveDialogue,
+  prompt,
+  setPrompt,
+  onUpdateDialogue
 }: {
-  role: "assistant" | "user";
-  icon: "learner" | "bot";
-  text: string;
-  time: string;
+  videos: SpaceVideo[];
+  setVideos: React.Dispatch<React.SetStateAction<SpaceVideo[]>>;
+  savedDialogues: SavedDialogue[];
+  onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => void;
+  prompt: string;
+  setPrompt: (prompt: string) => void;
+  onUpdateDialogue: (dialogue: SavedDialogue) => void;
 }) {
-  return (
-    <article className={`scene-bubble ${role}`}>
-      <div className={`bubble-avatar ${icon}`}>
-        {icon === "bot" ? <Bot size={24} /> : <span />}
-      </div>
-      <div className="bubble-card">
-        <p>{text}</p>
-        <time>{time}</time>
-      </div>
-    </article>
-  );
-}
+  const [spaceUrl, setSpaceUrl] = React.useState("https://app.youlearn.ai/space/c9241bc0721046c8");
+  const [activeVideoId, setActiveVideoId] = React.useState(videos[0]?.id ?? "");
+  const [currentTime, setCurrentTime] = React.useState(0);
+  const [loading, setLoading] = React.useState(false);
+  const [status, setStatus] = React.useState("");
+  const [customTranscript, setCustomTranscript] = React.useState("");
+  const [selectedDialogueId, setSelectedDialogueId] = React.useState(savedDialogues[0]?.id ?? "");
+  const [processingId, setProcessingId] = React.useState("");
 
-function LearningPanel({
-  activeTab,
-  onTabChange,
-  mistakes,
-  stats,
-  onUpdateMistake,
-  onDeleteMistake,
-  onToggleFavorite
-}: {
-  activeTab: MistakeType;
-  onTabChange: (tab: MistakeType) => void;
-  mistakes: Mistake[];
-  stats: { total: number; byType: { type: MistakeType; count: number }[] };
-  onUpdateMistake: (item: Mistake) => void;
-  onDeleteMistake: (id: string) => void;
-  onToggleFavorite: (id: string) => void;
-}) {
-  const [movieFilter, setMovieFilter] = React.useState("All Movies");
-  const [sortOrder, setSortOrder] = React.useState<"newest" | "oldest" | "favorites">("newest");
-  const [showAll, setShowAll] = React.useState(false);
-  const [editing, setEditing] = React.useState<Mistake | null>(null);
-  const movieOptions = React.useMemo(
-    () => ["All Movies", ...Array.from(new Set(mistakes.map((item) => item.movie)))],
-    [mistakes]
-  );
+  const activeVideo = videos.find((video) => video.id === activeVideoId) ?? videos[0] ?? fallbackVideos[0];
+  const activeSegment =
+    activeVideo.transcript
+      .slice()
+      .reverse()
+      .find((segment) => segment.startTime <= currentTime) ?? activeVideo.transcript[0];
 
-  const visible = React.useMemo(() => {
-    const filtered = mistakes
-      .filter((item) => showAll || item.type === activeTab)
-      .filter((item) => movieFilter === "All Movies" || item.movie === movieFilter)
-      .filter((item) => sortOrder !== "favorites" || item.favorite);
+  async function importSpace() {
+    const spaceId = extractSpaceId(spaceUrl);
+    if (!spaceId) {
+      setStatus("Paste a valid YouLearn space link.");
+      return;
+    }
+    setLoading(true);
+    setStatus("Importing videos and transcripts...");
+    try {
+      const response = await fetch(`/api/youlearn-space?spaceId=${encodeURIComponent(spaceId)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Import failed");
+      const imported = Array.isArray(data.contents) && data.contents.length ? data.contents : fallbackVideos;
+      setVideos(imported);
+      setActiveVideoId(imported[0]?.id ?? "");
+      setStatus(`Imported ${imported.length} video(s).`);
+    } catch (error) {
+      setVideos(fallbackVideos);
+      setActiveVideoId(fallbackVideos[0].id);
+      setStatus(error instanceof Error ? `${error.message}. Demo videos loaded.` : "Demo videos loaded.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
-    return [...filtered]
-      .sort((a, b) => {
-        if (sortOrder === "oldest") return a.id.localeCompare(b.id);
-        if (sortOrder === "favorites") return Number(b.favorite) - Number(a.favorite);
-        return b.id.localeCompare(a.id);
+  function applyCustomTranscript() {
+    const segments = customTranscript
+      .split(/\r?\n/)
+      .map((line, index) => {
+        const match = line.match(/^(?:(\d+(?:\.\d+)?)\s*[-:]\s*)?(.*)$/);
+        return {
+          id: `custom-${Date.now()}-${index}`,
+          startTime: Number(match?.[1] ?? index * 6),
+          text: (match?.[2] ?? line).trim(),
+          custom: true
+        };
       })
-      .slice(0, 4);
-  }, [activeTab, mistakes, movieFilter, showAll, sortOrder]);
+      .filter((segment) => segment.text);
+    if (!segments.length) return;
+    setVideos((current) =>
+      current.map((video) => (video.id === activeVideo.id ? { ...video, transcript: segments } : video))
+    );
+    setStatus("Custom transcript applied.");
+  }
 
-  function resetView() {
-    setShowAll(true);
-    setMovieFilter("All Movies");
-    setSortOrder("newest");
+  async function processDialogue(dialogue: SavedDialogue, mode: "Hinglish" | "English") {
+    setProcessingId(dialogue.id);
+    try {
+      const response = await fetch("/api/dialogue-transform", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dialogue: dialogue.text, prompt, mode })
+      });
+      const data = await response.json();
+      onUpdateDialogue({
+        ...dialogue,
+        promptResult: data.result || data.translation || "Processed.",
+        hinglish: mode === "Hinglish" ? data.hinglish || data.result : dialogue.hinglish,
+        english: mode === "English" ? data.english || data.result : dialogue.english
+      });
+    } finally {
+      setProcessingId("");
+    }
   }
 
   return (
-    <section className="panel learning-panel">
-      <div className="tab-row" role="tablist" aria-label="Learning categories">
-        {tabs.map((tab) => (
+    <div className="watch-grid">
+      <section className="space-import">
+        <div>
+          <h1>Watch</h1>
+          <p>Add a public YouLearn space, play movie videos, and save exact dialogues.</p>
+        </div>
+        <div className="import-row">
+          <Link size={18} />
+          <input value={spaceUrl} onChange={(event) => setSpaceUrl(event.target.value)} />
+          <button onClick={importSpace} disabled={loading}>
+            {loading ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
+            Import
+          </button>
+        </div>
+        <span className="status-line">{status}</span>
+      </section>
+
+      <section className="video-list">
+        <h2>Space videos</h2>
+        {videos.map((video) => (
           <button
-            key={tab}
-            role="tab"
-            aria-selected={activeTab === tab}
-            className={activeTab === tab ? "active" : ""}
-            onClick={() => {
-              setShowAll(false);
-              onTabChange(tab);
-            }}
+            key={video.id}
+            className={video.id === activeVideo.id ? "active" : ""}
+            onClick={() => setActiveVideoId(video.id)}
           >
-            <TabIcon type={tab} />
-            {tabLabels[tab]}
+            <div className="thumb">{video.thumbnailUrl ? <img src={video.thumbnailUrl} alt="" /> : <Film />}</div>
+            <span>{video.title}</span>
+            <small>{Math.round(video.duration || 0)}s</small>
           </button>
         ))}
-      </div>
+      </section>
 
-      <div className="list-toolbar">
-        <p>Your saved mistakes and better ways to say things.</p>
-        <div>
-          <label className="toolbar-select">
-            <SlidersHorizontal size={18} />
-            <select
-              aria-label="Filter movies"
-              value={movieFilter}
-              onChange={(event) => setMovieFilter(event.target.value)}
-            >
-              {movieOptions.map((movie) => (
-                <option key={movie}>{movie}</option>
-              ))}
-            </select>
-            <ChevronDown size={16} />
-          </label>
-          <label className="toolbar-select">
-            <BarChart3 size={18} />
-            <select
-              aria-label="Sort mistakes"
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest" | "favorites")}
-            >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-              <option value="favorites">Favorites</option>
-            </select>
-            <ChevronDown size={16} />
-          </label>
-        </div>
-      </div>
-
-      <div className="mistake-table">
-        {visible.length ? (
-          visible.map((item) => (
-            <MistakeRow
-              key={item.id}
-              item={item}
-              onEdit={() => setEditing(item)}
-              onDelete={() => onDeleteMistake(item.id)}
-              onToggleFavorite={() => onToggleFavorite(item.id)}
-            />
-          ))
+      <section className="player-card">
+        {activeVideo.contentUrl ? (
+          <video
+            src={activeVideo.contentUrl}
+            controls
+            poster={activeVideo.thumbnailUrl}
+            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+          />
         ) : (
-          <div className="empty-table">
-            <strong>No saved items here.</strong>
-            <span>Use View All or review another translation.</span>
+          <div className="video-placeholder">
+            <Play size={42} />
+            <strong>{activeVideo.title}</strong>
+            <span>Demo clip shell. Import a YouLearn space for playable video.</span>
           </div>
         )}
-      </div>
-
-      <div className="summary-bar">
-        <div className="summary-title">
-          <Trophy size={25} />
-          <span>Total Items Learned</span>
-          <strong>{Math.max(stats.total, 128)}</strong>
+        <div className="subtitle-card">
+          <Languages size={22} />
+          <p>{activeSegment?.text ?? "Transcript line appears here while video plays."}</p>
+          <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
+            <Save size={16} /> Save Dialogue
+          </button>
         </div>
-        {stats.byType.map((item, index) => (
-          <div className={`summary-count ${typeColors[item.type]}`} key={item.type}>
-            <span>{tabLabels[item.type]}</span>
-            <strong>{[56, 34, 12, 14, 12][index] + item.count}</strong>
-          </div>
-        ))}
-        <button className="view-all" onClick={resetView}>
-          <RotateCcw size={14} /> View All
-        </button>
-      </div>
+      </section>
 
-      {editing ? (
-        <EditMistakeDialog
-          item={editing}
-          onClose={() => setEditing(null)}
-          onSave={(updated) => {
-            onUpdateMistake(updated);
-            setEditing(null);
-          }}
+      <section className="transcript-card">
+        <div className="section-head">
+          <h2>Dialogues</h2>
+          <span>{activeVideo.transcript.length} lines</span>
+        </div>
+        <div className="transcript-list">
+          {activeVideo.transcript.map((segment) => (
+            <button
+              key={segment.id}
+              className={segment.id === activeSegment?.id ? "active" : ""}
+              onClick={() => {
+                setCurrentTime(segment.startTime);
+                onSaveDialogue(activeVideo, segment);
+              }}
+            >
+              <small>{formatTime(segment.startTime)}</small>
+              <span>{segment.text}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <section className="custom-card">
+        <h2>Custom transcript</h2>
+        <textarea
+          value={customTranscript}
+          onChange={(event) => setCustomTranscript(event.target.value)}
+          placeholder="0 - Dialogue one&#10;8 - Dialogue two&#10;15 - Dialogue three"
         />
-      ) : null}
-    </section>
-  );
-}
+        <button onClick={applyCustomTranscript}>
+          <ClipboardEdit size={16} /> Use custom transcript
+        </button>
+      </section>
 
-function TabIcon({ type }: { type: MistakeType }) {
-  if (type === "Vocabulary") return <BookOpen size={20} />;
-  if (type === "Phrase") return <MessageCircle size={20} />;
-  if (type === "Proverb") return <Sparkles size={20} />;
-  if (type === "Article") return <Clapperboard size={20} />;
-  return <Settings size={20} />;
-}
-
-function MistakeRow({
-  item,
-  onEdit,
-  onDelete,
-  onToggleFavorite
-}: {
-  item: Mistake;
-  onEdit: () => void;
-  onDelete: () => void;
-  onToggleFavorite: () => void;
-}) {
-  return (
-    <article className="mistake-row">
-      <PosterTile movie={item.movie} />
-      <div className="movie-meta">
-        <strong>{item.movie}</strong>
-        <span>Scene: {item.scene}</span>
-        <small>{item.createdAt}</small>
-      </div>
-      <div className="sentence-compare">
-        <label>Your sentence</label>
-        <p>{highlightTerm(item.userText, item.memoryCue, "bad")}</p>
-        <label className="better">Better</label>
-        <p>{highlightTerm(item.suggestion, item.memoryCue, "good")}</p>
-      </div>
-      <div className="row-note">
-        <span className={`type-chip ${typeColors[item.type]}`}>{item.label || item.type}</span>
-        <p>{item.why}</p>
-        <div className="row-actions">
-          <button onClick={onEdit}>
-            <Pencil size={13} /> Edit
+      <section className="prompt-card">
+        <h2>Dialogue prompt</h2>
+        <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+        <select value={selectedDialogueId} onChange={(event) => setSelectedDialogueId(event.target.value)}>
+          <option value="">Select saved dialogue</option>
+          {savedDialogues.map((dialogue) => (
+            <option key={dialogue.id} value={dialogue.id}>
+              {dialogue.text.slice(0, 70)}
+            </option>
+          ))}
+        </select>
+        <div className="prompt-actions">
+          <button
+            onClick={() => {
+              const dialogue = savedDialogues.find((item) => item.id === selectedDialogueId) ?? savedDialogues[0];
+              if (dialogue) processDialogue(dialogue, "Hinglish");
+            }}
+            disabled={!savedDialogues.length || Boolean(processingId)}
+          >
+            {processingId ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+            Hinglish
           </button>
-          <button className="danger" onClick={onDelete}>
-            <Trash2 size={13} /> Delete
+          <button
+            className="blue-btn"
+            onClick={() => {
+              const dialogue = savedDialogues.find((item) => item.id === selectedDialogueId) ?? savedDialogues[0];
+              if (dialogue) processDialogue(dialogue, "English");
+            }}
+            disabled={!savedDialogues.length || Boolean(processingId)}
+          >
+            <Languages size={16} />
+            English
           </button>
         </div>
-      </div>
-      <button
-        className={`star-btn ${item.favorite ? "active" : ""}`}
-        onClick={onToggleFavorite}
-        aria-label={item.favorite ? "Remove favorite" : "Save favorite"}
-      >
-        <Star size={20} />
-      </button>
-    </article>
+      </section>
+    </div>
   );
 }
 
-function EditMistakeDialog({
-  item,
-  onSave,
-  onClose
+function PracticePage({
+  savedDialogues,
+  onRecord,
+  videos,
+  prompt
 }: {
-  item: Mistake;
-  onSave: (item: Mistake) => void;
-  onClose: () => void;
+  savedDialogues: SavedDialogue[];
+  onRecord: (score: number, dialogue: SavedDialogue) => void;
+  videos: SpaceVideo[];
+  prompt: string;
 }) {
-  const [draft, setDraft] = React.useState(item);
+  const [testSet, setTestSet] = React.useState<SavedDialogue[]>(() => buildDailySet(savedDialogues));
+  const [index, setIndex] = React.useState(0);
+  const [answer, setAnswer] = React.useState("");
+  const [result, setResult] = React.useState<{ score: number; feedback: string; expected: string } | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const active = testSet[index];
+  const video = videos.find((item) => item.id === active?.videoId);
+  const dialogueIdKey = savedDialogues.map((dialogue) => dialogue.id).join("|");
 
-  function update<K extends keyof Mistake>(key: K, value: Mistake[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
+  React.useEffect(() => {
+    setTestSet(buildDailySet(savedDialogues));
+    setIndex(0);
+    setResult(null);
+    setAnswer("");
+  }, [dialogueIdKey]);
+
+  async function submit() {
+    if (!active || !answer.trim()) return;
+    setLoading(true);
+    try {
+      const response = await fetch("/api/practice-grade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dialogue: active.text, answer, prompt })
+      });
+      const data = await response.json();
+      const score = Number(data.score ?? 0);
+      setResult({
+        score,
+        feedback: data.feedback || "Checked.",
+        expected: data.expected || active.promptResult || active.text
+      });
+      onRecord(score, active);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!active) {
+    return (
+      <section className="empty-practice">
+        <div className="duo-mascot small">
+          <div className="face" />
+        </div>
+        <h1>No saved dialogues yet</h1>
+        <p>Go to Watch, save a few dialogues, then start the daily 5-line test.</p>
+      </section>
+    );
   }
 
   return (
-    <div className="edit-backdrop" role="dialog" aria-modal="true" aria-label="Edit mistake">
-      <form
-        className="edit-card"
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSave(draft);
-        }}
-      >
-        <div className="edit-head">
-          <h3>Edit mistake</h3>
-          <button type="button" onClick={onClose} aria-label="Close editor">
-            <X size={18} />
-          </button>
-        </div>
-
-        <label>
-          Category
-          <select value={draft.type} onChange={(event) => update("type", event.target.value as MistakeType)}>
-            {tabs.map((tab) => (
-              <option key={tab} value={tab}>
-                {tabLabels[tab]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Label
-          <input value={draft.label} onChange={(event) => update("label", event.target.value)} />
-        </label>
-        <label>
-          Your sentence
-          <textarea value={draft.userText} onChange={(event) => update("userText", event.target.value)} />
-        </label>
-        <label>
-          Better sentence
-          <textarea value={draft.suggestion} onChange={(event) => update("suggestion", event.target.value)} />
-        </label>
-        <label>
-          Why
-          <textarea value={draft.why} onChange={(event) => update("why", event.target.value)} />
-        </label>
-
-        <div className="edit-actions">
-          <button type="button" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="save-edit">
-            <Save size={15} /> Save
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function highlightTerm(text: string, term: string, tone: "bad" | "good") {
-  if (!term) return text;
-  const index = text.toLowerCase().indexOf(term.toLowerCase());
-  if (index < 0) return text;
-  const before = text.slice(0, index);
-  const match = text.slice(index, index + term.length);
-  const after = text.slice(index + term.length);
-  return (
-    <>
-      {before}
-      <mark className={tone}>{match}</mark>
-      {after}
-    </>
-  );
-}
-
-function PosterTile({ movie }: { movie: string }) {
-  const isTaare = movie.includes("Taare");
-  return (
-    <div className={`poster-tile ${isTaare ? "taare" : ""}`}>
-      <strong>{isTaare ? "Taare\nZameen\nPar" : "3 idiots"}</strong>
-      <span />
-    </div>
-  );
-}
-
-function GraphView({
-  stats,
-  mistakes,
-  onBack
-}: {
-  stats: { byType: { type: MistakeType; count: number }[]; total: number };
-  mistakes: Mistake[];
-  onBack: () => void;
-}) {
-  const max = Math.max(...stats.byType.map((item) => item.count), 1);
-
-  return (
-    <section className="graph-page">
-      <div className="graph-head">
-        <div>
-          <p>Vocab Graph</p>
-          <h2>Context memory map</h2>
-        </div>
-        <button onClick={onBack}>Back to Home</button>
-      </div>
-
-      <div className="graph-grid">
-        <div className="graph-board">
-          <div className="center-node">
-            <img src="/dialog-dungeon-logo.svg" alt="" />
-            <strong>{stats.total}</strong>
-            <span>saved fixes</span>
+    <div className="practice-grid">
+      <section className="practice-card">
+        <div className="section-head">
+          <div>
+            <h1>Daily Dialogue Test</h1>
+            <p>Question {index + 1} of {testSet.length}</p>
           </div>
-          {stats.byType.map((item, index) => (
-            <div
-              className={`graph-node node-${index}`}
-              key={item.type}
-              style={{ "--strength": String(0.35 + item.count / max) } as React.CSSProperties}
+          <div className="xp-pill">Set {active.bucket}</div>
+        </div>
+        <div className="clip-box">
+          {video?.contentUrl ? <video src={video.contentUrl} controls /> : <Film size={52} />}
+          <div className="hinglish-subtitle">{active.hinglish || active.promptResult || toHinglishHint(active.text)}</div>
+        </div>
+        <textarea
+          value={answer}
+          onChange={(event) => setAnswer(event.target.value)}
+          placeholder="Type the English version..."
+        />
+        <button className="big-green" onClick={submit} disabled={loading || !answer.trim()}>
+          {loading ? <Loader2 className="spin" /> : <Send />}
+          Check answer
+        </button>
+      </section>
+
+      <section className="score-card">
+        <h2>Score</h2>
+        {result ? (
+          <>
+            <div className={`score-circle ${result.score >= 80 ? "pass" : "retry"}`}>{result.score}%</div>
+            <p>{result.feedback}</p>
+            <strong>Expected</strong>
+            <span>{result.expected}</span>
+            <button
+              onClick={() => {
+                setIndex((current) => Math.min(current + 1, testSet.length - 1));
+                setAnswer("");
+                setResult(null);
+              }}
             >
-              <span>{item.count}</span>
-              {tabLabels[item.type]}
+              Next <ChevronRight size={18} />
+            </button>
+          </>
+        ) : (
+          <p>Submit your translation to get scored. Correct lines move down to lower priority sets.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function GraphPage({
+  savedDialogues,
+  scores,
+  onUpdateDialogue,
+  onDeleteDialogue
+}: {
+  savedDialogues: SavedDialogue[];
+  scores: DailyScore[];
+  onUpdateDialogue: (dialogue: SavedDialogue) => void;
+  onDeleteDialogue: (id: string) => void;
+}) {
+  const [editingId, setEditingId] = React.useState("");
+  const [draftText, setDraftText] = React.useState("");
+  const buckets = [1, 2, 3, 4, 5].map((bucket) => ({
+    bucket,
+    count: savedDialogues.filter((item) => item.bucket === bucket).length
+  }));
+  return (
+    <div className="progress-grid">
+      <section className="progress-card">
+        <h1>Dialogue library</h1>
+        <div className="bucket-row">
+          {buckets.map((item) => (
+            <div key={item.bucket} className="bucket-card">
+              <strong>{item.count}</strong>
+              <span>Set {item.bucket}</span>
             </div>
           ))}
         </div>
-        <div className="graph-list">
-          {mistakes.slice(0, 8).map((item) => (
-            <div className="graph-row" key={item.id}>
-              <Star size={16} />
+        <div className="saved-dialogue-list">
+          {savedDialogues.map((dialogue) => (
+            <div className="saved-dialogue-row" key={dialogue.id}>
               <div>
-                <strong>{item.suggestion || item.label}</strong>
-                <span>
-                  {item.movie} / {item.scene}
-                </span>
+                <small>{dialogue.videoTitle} - Set {dialogue.bucket}</small>
+                {editingId === dialogue.id ? (
+                  <input value={draftText} onChange={(event) => setDraftText(event.target.value)} />
+                ) : (
+                  <strong>{dialogue.text}</strong>
+                )}
+                {dialogue.hinglish || dialogue.english ? (
+                  <span>{dialogue.hinglish || dialogue.english}</span>
+                ) : null}
+              </div>
+              <div className="row-actions">
+                {editingId === dialogue.id ? (
+                  <button
+                    onClick={() => {
+                      onUpdateDialogue({ ...dialogue, text: draftText.trim() || dialogue.text });
+                      setEditingId("");
+                    }}
+                  >
+                    <Save size={16} />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setEditingId(dialogue.id);
+                      setDraftText(dialogue.text);
+                    }}
+                  >
+                    <ClipboardEdit size={16} />
+                  </button>
+                )}
+                <button className="danger" onClick={() => onDeleteDialogue(dialogue.id)}>
+                  <Trash2 size={16} />
+                </button>
               </div>
             </div>
           ))}
         </div>
-      </div>
-    </section>
+      </section>
+      <section className="progress-card">
+        <h2>Daily scores</h2>
+        {scores.slice(0, 8).map((score) => (
+          <div className="score-row" key={score.date}>
+            <span>{score.date}</span>
+            <strong>{Math.round(score.totalScore / Math.max(1, score.attempted))}%</strong>
+            <small>{score.attempted} attempts</small>
+          </div>
+        ))}
+      </section>
+    </div>
   );
+}
+
+function buildDailySet(dialogues: SavedDialogue[]) {
+  return dialogues
+    .slice()
+    .sort((a, b) => a.bucket - b.bucket || b.missCount - a.missCount || a.correctCount - b.correctCount)
+    .slice(0, 5);
+}
+
+function formatTime(seconds: number) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+function toHinglishHint(text: string) {
+  return `Hinglish hint: "${text}" ko natural English mein likho.`;
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(<App />);

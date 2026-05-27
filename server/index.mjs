@@ -3,7 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { getReviewPayload, getScenePayload } from "./learning.mjs";
+import {
+  getDialogueTransformPayload,
+  getPracticeGradePayload,
+  getReviewPayload,
+  getScenePayload,
+  getYoulearnSpacePayload
+} from "./learning.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -22,6 +28,21 @@ app.post("/api/scene", async (req, res) => {
 
 app.post("/api/review", async (req, res) => {
   const result = await getReviewPayload(req.body);
+  res.status(result.status).json(result.body);
+});
+
+app.get("/api/youlearn-space", async (req, res) => {
+  const result = await getYoulearnSpacePayload(req.query);
+  res.status(result.status).json(result.body);
+});
+
+app.post("/api/dialogue-transform", async (req, res) => {
+  const result = await getDialogueTransformPayload(req.body);
+  res.status(result.status).json(result.body);
+});
+
+app.post("/api/practice-grade", async (req, res) => {
+  const result = await getPracticeGradePayload(req.body);
   res.status(result.status).json(result.body);
 });
 

@@ -81,6 +81,114 @@ export async function getReviewPayload(body = {}) {
   }
 }
 
+export async function getYoulearnSpacePayload(query = {}) {
+  const spaceId = String(query.spaceId || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,}$/.test(spaceId)) {
+    return { status: 400, body: { error: "Valid YouLearn space id is required" } };
+  }
+
+  try {
+    const response = await fetch(`https://api.youlearn.ai/space/anonymous/${spaceId}`, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "DialogDungeon/0.2 local learning app"
+      }
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`YouLearn space ${response.status}: ${text.slice(0, 300)}`);
+    }
+
+    const payload = await response.json();
+    const rawContents = Array.isArray(payload?.contents) ? payload.contents : [];
+    const videoItems = rawContents.filter((item) => item?.content_url || item?.url);
+    const contents = await Promise.all(videoItems.map(normalizeYoulearnVideo));
+
+    return {
+      status: 200,
+      body: {
+        space: {
+          id: String(payload?.space?._id || payload?.space?.id || spaceId),
+          title: String(payload?.space?.title || payload?.space?.name || "YouLearn Space")
+        },
+        contents
+      }
+    };
+  } catch (error) {
+    console.error("YouLearn import failed", error);
+    return { status: 502, body: { error: error instanceof Error ? error.message : "YouLearn import failed" } };
+  }
+}
+
+export async function getDialogueTransformPayload(body = {}) {
+  const { dialogue, prompt, mode = "Hinglish" } = body;
+  if (!dialogue) {
+    return { status: 400, body: { error: "dialogue is required" } };
+  }
+
+  try {
+    const data = await callDeepSeekJson(
+      [
+        "You are a movie-dialogue language tutor for Hindi/Hinglish speakers.",
+        `Mode: ${mode}`,
+        `User prompt/rule: ${prompt || "Translate and explain naturally."}`,
+        `Dialogue: ${dialogue}`,
+        "Return JSON only with keys: result, english, hinglish, notes.",
+        "Keep result short, useful, and learner-friendly."
+      ].join("\n"),
+      800
+    );
+
+    return {
+      status: 200,
+      body: {
+        result: String(data?.result || data?.hinglish || data?.english || ""),
+        english: String(data?.english || ""),
+        hinglish: String(data?.hinglish || ""),
+        notes: String(data?.notes || "")
+      }
+    };
+  } catch (error) {
+    console.error("Dialogue transform failed", error);
+    return { status: 200, body: fallbackDialogueTransform(dialogue, mode) };
+  }
+}
+
+export async function getPracticeGradePayload(body = {}) {
+  const { dialogue, answer, prompt } = body;
+  if (!dialogue || !answer) {
+    return { status: 400, body: { error: "dialogue and answer are required" } };
+  }
+
+  try {
+    const data = await callDeepSeekJson(
+      [
+        "You are an English translation examiner for Hindi/Hinglish speakers.",
+        `Tutor prompt/context: ${prompt || "Grade for natural English meaning."}`,
+        `Source dialogue/context: ${dialogue}`,
+        `Learner English answer: ${answer}`,
+        "Score meaning accuracy, grammar, naturalness, and word choice.",
+        "Return JSON only with keys: score, feedback, expected.",
+        "score must be integer 0-100. feedback must be short Hinglish."
+      ].join("\n"),
+      700
+    );
+
+    return {
+      status: 200,
+      body: {
+        score: clampScore(data?.score),
+        feedback: String(data?.feedback || "Checked."),
+        expected: String(data?.expected || dialogue)
+      }
+    };
+  } catch (error) {
+    console.error("Practice grade failed", error);
+    return { status: 200, body: fallbackPracticeGrade(dialogue, answer) };
+  }
+}
+
 async function callDeepSeekJson(prompt, maxTokens) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) {
@@ -113,6 +221,95 @@ async function callDeepSeekJson(prompt, maxTokens) {
     throw new Error("DeepSeek returned empty content");
   }
   return JSON.parse(content);
+}
+
+async function normalizeYoulearnVideo(item) {
+  const id = String(item?.content_id || item?._id || item?.id || `video-${Date.now()}-${Math.random()}`);
+  const transcript = await fetchYoulearnTranscript(id);
+  const duration = Number(item?.length || item?.duration || item?.metadata?.duration || 0);
+
+  return {
+    id,
+    title: String(item?.title || item?.name || "Untitled video"),
+    contentUrl: String(item?.content_url || item?.url || ""),
+    thumbnailUrl: String(item?.thumbnail_url || item?.thumbnail || ""),
+    duration: Number.isFinite(duration) ? duration : 0,
+    transcript
+  };
+}
+
+async function fetchYoulearnTranscript(contentId) {
+  if (!contentId) return [];
+
+  try {
+    const response = await fetch("https://api.youlearn.ai/content/transcript", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Referer: "https://app.youlearn.ai/",
+        "x-platform": "web",
+        "User-Agent": "DialogDungeon/0.2 local learning app"
+      },
+      body: JSON.stringify({ user_id: "anonymous", content_id: contentId })
+    });
+
+    if (!response.ok) return [];
+    const payload = await response.json();
+    const chunks = Array.isArray(payload) ? payload : Array.isArray(payload?.transcript) ? payload.transcript : [];
+
+    return chunks
+      .map((chunk, index) => ({
+        id: `${contentId}-${index}`,
+        startTime: Number(chunk?.source ?? chunk?.start ?? chunk?.startTime ?? index * 5),
+        text: String(chunk?.page_content || chunk?.text || "").trim()
+      }))
+      .filter((chunk) => chunk.text)
+      .sort((a, b) => a.startTime - b.startTime);
+  } catch (error) {
+    console.error("YouLearn transcript failed", error);
+    return [];
+  }
+}
+
+function clampScore(value) {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function fallbackDialogueTransform(dialogue, mode) {
+  const text = String(dialogue || "");
+  const hinglish = `Hinglish: is dialogue ka matlab hai - "${text}" - scene mein emotion aur intent ko simple words mein samjho.`;
+  const english = `Natural English: ${text}`;
+  return {
+    result: String(mode).toLowerCase().includes("english") ? english : hinglish,
+    english,
+    hinglish,
+    notes: "Fallback used because DeepSeek is not configured."
+  };
+}
+
+function fallbackPracticeGrade(dialogue, answer) {
+  const sourceTokens = tokenize(dialogue);
+  const answerTokens = Array.from(tokenize(answer));
+  const overlap = answerTokens.filter((token) => sourceTokens.has(token)).length;
+  const score = Math.max(35, Math.min(92, Math.round((overlap / Math.max(1, sourceTokens.size)) * 100)));
+  return {
+    score,
+    feedback: score >= 80 ? "Meaning match ho raha hai. Good natural attempt." : "Meaning thoda miss hua. Key words aur structure improve karo.",
+    expected: String(dialogue)
+  };
+}
+
+function tokenize(value) {
+  return new Set(
+    String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length > 2)
+  );
 }
 
 async function fetchSceneContext(movie, scene) {

@@ -2,10 +2,11 @@
 
 Gamified English practice from movie scenes.
 
-- Pick a movie and scene.
-- Get a Hindi/Hinglish explanation.
-- Translate it in your own English.
-- Save vocabulary, phrases, proverbs, articles, and grammar fixes with scene context.
+- Import public YouLearn space links.
+- Watch videos with synced transcript/dialogues.
+- Save hard dialogues and add custom transcript lines.
+- Process saved dialogue with a custom DeepSeek prompt.
+- Practice 5 saved dialogues daily with score tracking and spaced repetition sets.
 
 ## Local Setup
 
