@@ -60,6 +60,10 @@ button {
   overflow: hidden;
 }
 
+.duo-app.nav-collapsed {
+  grid-template-columns: 86px 1fr;
+}
+
 .side-nav,
 .duo-main,
 .hero-panel,
@@ -92,6 +96,48 @@ button {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.collapse-nav {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  color: #5d6673;
+  background: #f1f5f9;
+}
+
+.side-nav.collapsed {
+  align-items: center;
+  padding: 16px 12px;
+}
+
+.side-nav.collapsed .duo-brand {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.side-nav.collapsed .duo-brand > div {
+  display: none;
+}
+
+.side-nav.collapsed .collapse-nav {
+  margin-left: 0;
+  transform: rotate(180deg);
+}
+
+.side-nav.collapsed nav button {
+  justify-content: center;
+  width: 54px;
+  padding: 0;
+}
+
+.side-nav.collapsed nav button span {
+  display: none;
 }
 
 .brand-logo,
@@ -459,7 +505,7 @@ button {
 .watch-grid {
   display: grid;
   grid-template-columns: minmax(220px, 285px) minmax(320px, 1fr) minmax(300px, 365px);
-  grid-template-rows: 126px 1fr 128px;
+  grid-template-rows: 1fr;
   gap: 16px;
 }
 
@@ -513,7 +559,7 @@ button {
 
 .video-list {
   grid-column: 1;
-  grid-row: 2 / 4;
+  grid-row: 1;
   min-height: 0;
   padding: 14px;
   overflow: hidden;
@@ -661,7 +707,7 @@ button {
 
 .player-card {
   grid-column: 2;
-  grid-row: 2 / 4;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -755,7 +801,7 @@ button {
 
 .transcript-card {
   grid-column: 3;
-  grid-row: 2 / 4;
+  grid-row: 1;
   min-height: 0;
   padding: 14px;
   overflow: hidden;
@@ -995,14 +1041,22 @@ button {
 
 .progress-grid {
   display: grid;
-  grid-template-columns: 1fr 420px;
+  grid-template-columns: minmax(0, 1fr) 420px;
   gap: 18px;
 }
 
 .settings-grid {
   display: grid;
   grid-template-columns: 330px 1fr 1fr;
-  grid-template-rows: 1fr;
+  grid-template-rows: auto 1fr;
+  gap: 18px;
+}
+
+.settings-import {
+  grid-column: 1 / 4;
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(320px, 1.6fr);
+  align-items: center;
   gap: 18px;
 }
 
@@ -1055,6 +1109,10 @@ button {
   padding: 0 12px;
 }
 
+.settings-import .import-row input {
+  min-width: 0;
+}
+
 .file-drop {
   display: grid;
   place-items: center;
@@ -1082,26 +1140,27 @@ button {
 }
 
 .bucket-row {
-  gap: 16px;
-  margin-top: 30px;
+  gap: 10px;
+  margin-top: 16px;
 }
 
 .bucket-card {
-  flex: 1;
+  flex: 0 1 112px;
   display: grid;
   place-items: center;
-  height: 170px;
-  border-radius: 24px;
+  height: 88px;
+  border-radius: 18px;
   color: #ffffff;
   background: var(--duo-green);
-  border-bottom: 8px solid var(--duo-green-dark);
+  border-bottom: 5px solid var(--duo-green-dark);
 }
 
 .bucket-card strong {
-  font-size: 44px;
+  font-size: 28px;
 }
 
 .bucket-card span {
+  font-size: 13px;
   font-weight: 950;
 }
 
@@ -1126,7 +1185,7 @@ button {
 .saved-dialogue-list {
   display: grid;
   gap: 10px;
-  height: calc(100% - 245px);
+  height: calc(100% - 160px);
   min-height: 160px;
   margin-top: 18px;
   overflow: auto;
@@ -1142,6 +1201,12 @@ button {
   border: 2px solid var(--line);
   border-radius: 16px;
   background: #ffffff;
+  text-align: left;
+}
+
+.saved-dialogue-row.active {
+  border-color: #58cc02;
+  background: #f1ffe8;
 }
 
 .saved-dialogue-row small,
@@ -1203,6 +1268,48 @@ button {
 .row-actions button.danger {
   background: var(--duo-red);
   border-bottom-color: #d63b3b;
+}
+
+.library-preview {
+  display: grid;
+  min-height: 220px;
+  margin-bottom: 12px;
+}
+
+.library-preview video,
+.library-preview iframe,
+.library-preview .video-placeholder {
+  width: 100%;
+  min-height: 220px;
+  border: 2px solid #1f2937;
+  border-radius: 18px;
+  background: #111827;
+}
+
+.preview-dialogue {
+  margin-bottom: 18px;
+  padding: 12px;
+  border: 2px solid #c8efb3;
+  border-radius: 14px;
+  background: #f6fff0;
+}
+
+.preview-dialogue small,
+.preview-dialogue strong {
+  display: block;
+}
+
+.preview-dialogue small {
+  color: var(--duo-green-dark);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.preview-dialogue strong {
+  margin-top: 5px;
+  color: #2d3b45;
+  font-size: 14px;
+  line-height: 1.35;
 }
 
 .spin {

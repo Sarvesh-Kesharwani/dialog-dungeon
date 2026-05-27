@@ -143,6 +143,7 @@ function getClientId() {
 
 function App() {
   const [page, setPage] = React.useState<Page>("home");
+  const [navCollapsed, setNavCollapsed] = React.useState(false);
   const [clientId] = React.useState(getClientId);
   const [videos, setVideos] = React.useState<SpaceVideo[]>(() => readJson("dialogdungeon-videos", fallbackVideos));
   const [folders, setFolders] = React.useState<Folder[]>(() => readJson("dialogdungeon-folders", defaultFolders));
@@ -269,8 +270,8 @@ function App() {
   const stats = buildStats(videos, savedDialogues, scores, folders);
 
   return (
-    <main className="duo-app">
-      <SideNav page={page} onPage={setPage} />
+    <main className={`duo-app ${navCollapsed ? "nav-collapsed" : ""}`}>
+      <SideNav page={page} onPage={setPage} collapsed={navCollapsed} onToggleCollapsed={() => setNavCollapsed((value) => !value)} />
       <section className="duo-main">
         <TopHeader stats={stats} syncStatus={syncStatus} />
         <section className="page-shell">
@@ -292,6 +293,7 @@ function App() {
           ) : null}
           {page === "graph" ? (
             <GraphPage
+              videos={videos}
               savedDialogues={savedDialogues}
               scores={scores}
               onUpdateDialogue={updateDialogue}
@@ -302,6 +304,7 @@ function App() {
             <SettingsPage
               videos={videos}
               setVideos={setVideos}
+              setFolders={setFolders}
               savedDialogues={savedDialogues}
               prompt={prompt}
               setPrompt={setPrompt}
@@ -314,7 +317,17 @@ function App() {
   );
 }
 
-function SideNav({ page, onPage }: { page: Page; onPage: (page: Page) => void }) {
+function SideNav({
+  page,
+  onPage,
+  collapsed,
+  onToggleCollapsed
+}: {
+  page: Page;
+  onPage: (page: Page) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+}) {
   const items: { page: Page; label: string; icon: React.ReactNode }[] = [
     { page: "home", label: "Home", icon: <Home size={21} /> },
     { page: "watch", label: "Watch", icon: <Video size={21} /> },
@@ -324,19 +337,22 @@ function SideNav({ page, onPage }: { page: Page; onPage: (page: Page) => void })
   ];
 
   return (
-    <aside className="side-nav">
+    <aside className={`side-nav ${collapsed ? "collapsed" : ""}`}>
       <div className="duo-brand">
         <img className="brand-logo" src="/dialog-dungeon-logo.svg" alt="" aria-hidden="true" />
         <div>
           <strong>DialogDungeon</strong>
           <span>Duolingo mode</span>
         </div>
+        <button className="collapse-nav" onClick={onToggleCollapsed} title={collapsed ? "Expand menu" : "Collapse menu"}>
+          <ChevronRight size={17} />
+        </button>
       </div>
       <nav>
         {items.map((item) => (
-          <button key={item.page} className={page === item.page ? "active" : ""} onClick={() => onPage(item.page)}>
+          <button key={item.page} className={page === item.page ? "active" : ""} onClick={() => onPage(item.page)} title={item.label}>
             {item.icon}
-            {item.label}
+            <span>{item.label}</span>
           </button>
         ))}
       </nav>
@@ -458,12 +474,9 @@ function WatchPage({
   savedDialogues: SavedDialogue[];
   onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => void;
 }) {
-  const [spaceUrl, setSpaceUrl] = React.useState("https://app.youlearn.ai/space/c9241bc0721046c8");
   const [activeVideoId, setActiveVideoId] = React.useState(videos[0]?.id ?? "");
   const [selectedFolder, setSelectedFolder] = React.useState("all");
   const [currentTime, setCurrentTime] = React.useState(0);
-  const [loading, setLoading] = React.useState(false);
-  const [status, setStatus] = React.useState("");
   const [playbackStatus, setPlaybackStatus] = React.useState("");
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const lineRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
@@ -496,33 +509,6 @@ function WatchPage({
     }
     setPlaybackStatus("");
   }, [activeVideo.id]);
-
-  async function importSpace() {
-    const spaceId = extractSpaceId(spaceUrl);
-    if (!spaceId) {
-      setStatus("Paste a valid YouLearn space link.");
-      return;
-    }
-    setLoading(true);
-    setStatus("Importing videos and transcripts...");
-    try {
-      const response = await fetch(`/api/youlearn-space?spaceId=${encodeURIComponent(spaceId)}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data?.error || "Import failed");
-      const importedFolders = normalizeImportedFolders(spaceId, data.folders ?? []);
-      const importedVideos = normalizeImportedVideos(spaceId, data.contents ?? []);
-      setFolders((current) => mergeFolders(current, importedFolders));
-      setVideos((current) =>
-        current.every((video) => video.id.startsWith("demo-")) ? importedVideos : mergeVideos(current, importedVideos)
-      );
-      setActiveVideoId(importedVideos[0]?.id ?? activeVideoId);
-      setStatus(`Imported ${importedVideos.length} video(s). Duplicates skipped locally.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Import failed.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   function renameVideo(video: SpaceVideo) {
     const next = window.prompt("Rename video", video.title)?.trim();
@@ -579,22 +565,6 @@ function WatchPage({
 
   return (
     <div className="watch-grid">
-      <section className="space-import">
-        <div>
-          <h1>Watch</h1>
-          <p>Add public YouLearn spaces. Imported clips stay after reload and sync to Supabase.</p>
-        </div>
-        <div className="import-row">
-          <Link size={18} />
-          <input value={spaceUrl} onChange={(event) => setSpaceUrl(event.target.value)} />
-          <button onClick={importSpace} disabled={loading}>
-            {loading ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
-            Import
-          </button>
-        </div>
-        <span className="status-line">{status}</span>
-      </section>
-
       <section className="video-list">
         <div className="section-head compact">
           <h2>Folders</h2>
@@ -732,6 +702,7 @@ function WatchPage({
 function SettingsPage({
   videos,
   setVideos,
+  setFolders,
   savedDialogues,
   prompt,
   setPrompt,
@@ -739,15 +710,45 @@ function SettingsPage({
 }: {
   videos: SpaceVideo[];
   setVideos: React.Dispatch<React.SetStateAction<SpaceVideo[]>>;
+  setFolders: React.Dispatch<React.SetStateAction<Folder[]>>;
   savedDialogues: SavedDialogue[];
   prompt: string;
   setPrompt: (prompt: string) => void;
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
 }) {
+  const [spaceUrl, setSpaceUrl] = React.useState("https://app.youlearn.ai/space/c9241bc0721046c8");
+  const [loading, setLoading] = React.useState(false);
   const [selectedVideoId, setSelectedVideoId] = React.useState(videos[0]?.id ?? "");
   const [selectedDialogueId, setSelectedDialogueId] = React.useState(savedDialogues[0]?.id ?? "");
   const [processingId, setProcessingId] = React.useState("");
   const [status, setStatus] = React.useState("");
+
+  async function importSpace() {
+    const spaceId = extractSpaceId(spaceUrl);
+    if (!spaceId) {
+      setStatus("Paste a valid YouLearn space link.");
+      return;
+    }
+    setLoading(true);
+    setStatus("Importing videos and transcripts...");
+    try {
+      const response = await fetch(`/api/youlearn-space?spaceId=${encodeURIComponent(spaceId)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Import failed");
+      const importedFolders = normalizeImportedFolders(spaceId, data.folders ?? []);
+      const importedVideos = normalizeImportedVideos(spaceId, data.contents ?? []);
+      setFolders((current) => mergeFolders(current, importedFolders));
+      setVideos((current) =>
+        current.every((video) => video.id.startsWith("demo-")) ? importedVideos : mergeVideos(current, importedVideos)
+      );
+      setSelectedVideoId(importedVideos[0]?.id ?? selectedVideoId);
+      setStatus(`Imported ${importedVideos.length} video(s). Duplicates skipped locally.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Import failed.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function applySrt(file: File) {
     const text = await file.text();
@@ -784,6 +785,21 @@ function SettingsPage({
 
   return (
     <div className="settings-grid">
+      <section className="settings-card settings-import">
+        <div>
+          <h1>Import</h1>
+          <p>Add public YouLearn spaces. Imported clips stay after reload and sync to Supabase.</p>
+        </div>
+        <div className="import-row">
+          <Link size={18} />
+          <input value={spaceUrl} onChange={(event) => setSpaceUrl(event.target.value)} />
+          <button onClick={importSpace} disabled={loading}>
+            {loading ? <Loader2 className="spin" size={18} /> : <Plus size={18} />}
+            Import
+          </button>
+        </div>
+        <span className="status-line">{status}</span>
+      </section>
       <section className="settings-card">
         <h1>Settings</h1>
         <p>SRT transcript overrides and prompt tools live here.</p>
@@ -950,11 +966,13 @@ function PracticePage({
 }
 
 function GraphPage({
+  videos,
   savedDialogues,
   scores,
   onUpdateDialogue,
   onDeleteDialogue
 }: {
+  videos: SpaceVideo[];
   savedDialogues: SavedDialogue[];
   scores: DailyScore[];
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
@@ -962,10 +980,38 @@ function GraphPage({
 }) {
   const [editingId, setEditingId] = React.useState("");
   const [draftText, setDraftText] = React.useState("");
+  const [selectedId, setSelectedId] = React.useState(savedDialogues[0]?.id ?? "");
+  const previewRef = React.useRef<HTMLVideoElement | null>(null);
   const buckets = [1, 2, 3, 4, 5].map((bucket) => ({
     bucket,
     count: savedDialogues.filter((item) => item.bucket === bucket).length
   }));
+  const selectedDialogue = savedDialogues.find((dialogue) => dialogue.id === selectedId) ?? savedDialogues[0];
+  const sourceVideo = selectedDialogue ? videos.find((video) => video.id === selectedDialogue.videoId) : undefined;
+  const previewUrl = selectedDialogue?.videoUrl || sourceVideo?.contentUrl || "";
+  const sourceSegmentIndex =
+    sourceVideo?.transcript.findIndex(
+      (segment) => segment.startTime === selectedDialogue?.startTime || segment.text === selectedDialogue?.text
+    ) ?? -1;
+  const sourceSegment = sourceSegmentIndex >= 0 ? sourceVideo?.transcript[sourceSegmentIndex] : undefined;
+  const clipStart = selectedDialogue?.startTime ?? 0;
+  const clipEnd =
+    sourceSegment?.endTime ??
+    (sourceSegmentIndex >= 0 ? sourceVideo?.transcript[sourceSegmentIndex + 1]?.startTime : undefined) ??
+    clipStart + 12;
+
+  React.useEffect(() => {
+    if (!selectedId && savedDialogues[0]) setSelectedId(savedDialogues[0].id);
+  }, [selectedId, savedDialogues]);
+
+  React.useEffect(() => {
+    if (!previewRef.current || !previewUrl || isYouTubeUrl(previewUrl)) return;
+    previewRef.current.currentTime = clipStart;
+    previewRef.current.muted = false;
+    previewRef.current.defaultMuted = false;
+    previewRef.current.volume = 1;
+  }, [clipStart, previewUrl]);
+
   return (
     <div className="progress-grid">
       <section className="progress-card">
@@ -980,7 +1026,16 @@ function GraphPage({
         </div>
         <div className="saved-dialogue-list">
           {savedDialogues.map((dialogue) => (
-            <div className="saved-dialogue-row" key={dialogue.id}>
+            <div
+              role="button"
+              tabIndex={0}
+              className={`saved-dialogue-row ${dialogue.id === selectedDialogue?.id ? "active" : ""}`}
+              key={dialogue.id}
+              onClick={() => setSelectedId(dialogue.id)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") setSelectedId(dialogue.id);
+              }}
+            >
               <div>
                 <small>{dialogue.videoTitle} - Set {dialogue.bucket}</small>
                 {editingId === dialogue.id ? (
@@ -993,7 +1048,8 @@ function GraphPage({
               <div className="row-actions">
                 {editingId === dialogue.id ? (
                   <button
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       onUpdateDialogue({ ...dialogue, text: draftText.trim() || dialogue.text });
                       setEditingId("");
                     }}
@@ -1002,7 +1058,8 @@ function GraphPage({
                   </button>
                 ) : (
                   <button
-                    onClick={() => {
+                    onClick={(event) => {
+                      event.stopPropagation();
                       setEditingId(dialogue.id);
                       setDraftText(dialogue.text);
                     }}
@@ -1010,7 +1067,13 @@ function GraphPage({
                     <ClipboardEdit size={16} />
                   </button>
                 )}
-                <button className="danger" onClick={() => onDeleteDialogue(dialogue.id)}>
+                <button
+                  className="danger"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDeleteDialogue(dialogue.id);
+                  }}
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
@@ -1019,6 +1082,49 @@ function GraphPage({
         </div>
       </section>
       <section className="progress-card">
+        <h2>Source clip</h2>
+        <div className="library-preview">
+          {previewUrl ? (
+            isYouTubeUrl(previewUrl) ? (
+              <iframe
+                title={selectedDialogue?.videoTitle ?? "Source clip"}
+                src={youtubeEmbedUrl(previewUrl, clipStart, clipEnd)}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <video
+                ref={previewRef}
+                src={previewUrl}
+                controls
+                playsInline
+                preload="metadata"
+                onLoadedMetadata={(event) => {
+                  event.currentTarget.currentTime = clipStart;
+                  event.currentTarget.muted = false;
+                  event.currentTarget.defaultMuted = false;
+                  event.currentTarget.volume = 1;
+                }}
+                onTimeUpdate={(event) => {
+                  if (event.currentTarget.currentTime >= clipEnd) event.currentTarget.pause();
+                }}
+              />
+            )
+          ) : (
+            <div className="video-placeholder">
+              <Film size={42} />
+              <span>Select a saved dialogue with a source video.</span>
+            </div>
+          )}
+        </div>
+        {selectedDialogue ? (
+          <div className="preview-dialogue">
+            <small>
+              {formatTime(clipStart)} - {formatTime(clipEnd)}
+            </small>
+            <strong>{selectedDialogue.text}</strong>
+          </div>
+        ) : null}
         <h2>Daily scores</h2>
         {scores.slice(0, 12).map((score) => (
           <div className="score-row" key={score.date}>
@@ -1140,7 +1246,7 @@ function isYouTubeUrl(url: string) {
   return /(?:youtube\.com|youtu\.be)/i.test(url);
 }
 
-function youtubeEmbedUrl(url: string) {
+function youtubeEmbedUrl(url: string, startSeconds = 0, endSeconds?: number) {
   const id = url.match(/[?&]v=([^&]+)/)?.[1] || url.match(/youtu\.be\/([^?]+)/)?.[1] || url.split("/").pop() || "";
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const params = new URLSearchParams({
@@ -1149,6 +1255,8 @@ function youtubeEmbedUrl(url: string) {
     playsinline: "1",
     enablejsapi: "1"
   });
+  if (startSeconds > 0) params.set("start", String(Math.floor(startSeconds)));
+  if (endSeconds && endSeconds > startSeconds) params.set("end", String(Math.ceil(endSeconds)));
   if (origin) params.set("origin", origin);
   return `https://www.youtube.com/embed/${encodeURIComponent(id)}?${params.toString()}`;
 }
