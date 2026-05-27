@@ -629,7 +629,7 @@ function WatchPage({
     function toggleWithSpace(event: KeyboardEvent) {
       if (event.code !== "Space" || isYouTube || !activeVideo?.contentUrl) return;
       const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return;
+      if (target?.closest("input, textarea, select, button, video, [contenteditable='true']")) return;
       event.preventDefault();
       toggleVideoPlayback();
     }
@@ -866,9 +866,6 @@ function WatchPage({
                 playsInline
                 preload="metadata"
                 poster={activeVideo.thumbnailUrl}
-                onClick={() => {
-                  toggleVideoPlayback();
-                }}
                 onLoadedMetadata={(event) => {
                   if (activeVideo.lastPosition) event.currentTarget.currentTime = activeVideo.lastPosition;
                   event.currentTarget.volume = 1;
