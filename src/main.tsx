@@ -69,6 +69,9 @@ type SavedDialogue = {
   videoUrl?: string;
   startTime: number;
   text: string;
+  userExamples?: string;
+  lifeExamples?: string[];
+  lifeContextSnapshot?: string;
   promptResult?: string;
   hinglish?: string;
   english?: string;
@@ -109,6 +112,7 @@ type AppState = {
   folders: Folder[];
   prompt: string;
   dialogueFilterPrompt?: string;
+  userLifeContext?: string;
   aiProvider?: AiProvider;
   updatedAt: string;
 };
@@ -117,6 +121,8 @@ const defaultPrompt =
   "Explain this movie dialogue in Hinglish, then give a natural English version. Keep it short and learner friendly.";
 const defaultDialogueFilterPrompt =
   "Include only dialogues that are useful for English learning: meaningful spoken lines, idioms, emotional intent, legal/social phrases, or natural conversation. Exclude filler, repeated fragments, single-word reactions, names, timestamps, and transcription noise.";
+const defaultLifeContext =
+  "Add your daily work, study, family, friends, goals, hobbies, communication style, and common situations where you speak English.";
 const defaultAiProvider: AiProvider = "youlearn";
 
 const defaultFolders: Folder[] = [{ id: "root", name: "All Dialogues", source: "local" }];
@@ -204,6 +210,34 @@ async function fetchDialogueTranslation(text: string, provider: AiProvider, prom
   }
 }
 
+function fallbackLifeExamples(text: string) {
+  return [
+    `Use it when you want to say "${text}" in a real conversation with a friend or coworker.`,
+    `Use it while explaining a situation where this feeling or idea matches your own experience.`,
+    `Use it as a short response when the same kind of moment comes up in daily life.`
+  ];
+}
+
+async function fetchLifeExamples(text: string, userLifeContext: string) {
+  try {
+    const response = await fetch("/api/dialogue-life-examples", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dialogue: text,
+        userLifeContext
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data?.error || "Life examples failed");
+    return Array.isArray(data.examples) && data.examples.length
+      ? data.examples.map(String).slice(0, 3)
+      : fallbackLifeExamples(text);
+  } catch {
+    return fallbackLifeExamples(text);
+  }
+}
+
 function getLastWatchVideoId(videos: SpaceVideo[]) {
   const storedId = localStorage.getItem(lastVideoKey);
   if (storedId && videos.some((video) => video.id === storedId)) return storedId;
@@ -231,6 +265,9 @@ function App() {
   const [dialogueFilterPrompt, setDialogueFilterPrompt] = React.useState(
     () => localStorage.getItem("dialogdungeon-dialogue-filter-prompt") || defaultDialogueFilterPrompt
   );
+  const [userLifeContext, setUserLifeContext] = React.useState(
+    () => localStorage.getItem("dialogdungeon-user-life-context") || ""
+  );
   const [aiProvider, setAiProvider] = React.useState<AiProvider>(() => normalizeAiProvider(localStorage.getItem("dialogdungeon-ai-provider")));
   const [syncStatus, setSyncStatus] = React.useState("Local");
   const cloudLoaded = React.useRef(false);
@@ -243,8 +280,9 @@ function App() {
     localStorage.setItem("dialogdungeon-scores", JSON.stringify(scores));
     localStorage.setItem("dialogdungeon-prompt", prompt);
     localStorage.setItem("dialogdungeon-dialogue-filter-prompt", dialogueFilterPrompt);
+    localStorage.setItem("dialogdungeon-user-life-context", userLifeContext);
     localStorage.setItem("dialogdungeon-ai-provider", aiProvider);
-  }, [videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, aiProvider]);
+  }, [videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext, aiProvider]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -261,6 +299,7 @@ function App() {
           setScores((current) => mergeScores(current, cloud.scores ?? []));
           if (cloud.prompt) setPrompt(cloud.prompt);
           if (cloud.dialogueFilterPrompt) setDialogueFilterPrompt(cloud.dialogueFilterPrompt);
+          if (typeof cloud.userLifeContext === "string") setUserLifeContext(cloud.userLifeContext);
           if (cloud.aiProvider) setAiProvider(normalizeAiProvider(cloud.aiProvider));
         }
         setSyncStatus(data?.source === "supabase" ? "Synced" : "Local");
@@ -288,6 +327,7 @@ function App() {
         scores,
         prompt,
         dialogueFilterPrompt,
+        userLifeContext,
         aiProvider,
         updatedAt: new Date().toISOString()
       };
@@ -301,13 +341,24 @@ function App() {
         .catch(() => setSyncStatus("Local"));
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [aiProvider, clientId, videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt]);
+  }, [aiProvider, clientId, videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext]);
 
   function saveDialogue(video: SpaceVideo, segment: TranscriptSegment) {
-    const exists = savedDialogues.some(
+    const existing = savedDialogues.find(
       (item) => item.videoId === video.id && item.startTime === segment.startTime && item.text === segment.text
     );
-    if (exists) return;
+    if (existing) {
+      if (!existing.lifeExamples?.length || existing.lifeContextSnapshot !== userLifeContext) {
+        fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
+          setSavedDialogues((current) =>
+            current.map((item) =>
+              item.id === existing.id ? { ...item, lifeExamples, lifeContextSnapshot: userLifeContext } : item
+            )
+          );
+        });
+      }
+      return existing.id;
+    }
     const id = `${Date.now()}-${segment.id}`;
     const fallback = fallbackSavedTranslation(segment.text);
     setSavedDialogues((current) => [
@@ -318,6 +369,9 @@ function App() {
         videoUrl: video.contentUrl,
         startTime: segment.startTime,
         text: segment.text,
+        userExamples: "",
+        lifeExamples: fallbackLifeExamples(segment.text),
+        lifeContextSnapshot: userLifeContext,
         promptResult: fallback.hinglish,
         hinglish: fallback.hinglish,
         english: fallback.english,
@@ -333,6 +387,14 @@ function App() {
         current.map((item) => (item.id === id ? { ...item, ...translation } : item))
       );
     });
+    fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
+      setSavedDialogues((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, lifeExamples, lifeContextSnapshot: userLifeContext } : item
+        )
+      );
+    });
+    return id;
   }
 
   function updateDialogue(updated: SavedDialogue) {
@@ -389,6 +451,8 @@ function App() {
               dialogueFilterPrompt={dialogueFilterPrompt}
               setDialogueFilterPrompt={setDialogueFilterPrompt}
               onSaveDialogue={saveDialogue}
+              onUpdateDialogue={updateDialogue}
+              userLifeContext={userLifeContext}
               aiProvider={aiProvider}
             />
           ) : null}
@@ -413,6 +477,8 @@ function App() {
               savedDialogues={savedDialogues}
               prompt={prompt}
               setPrompt={setPrompt}
+              userLifeContext={userLifeContext}
+              setUserLifeContext={setUserLifeContext}
               onUpdateDialogue={updateDialogue}
               aiProvider={aiProvider}
               setAiProvider={setAiProvider}
@@ -577,6 +643,8 @@ function WatchPage({
   dialogueFilterPrompt,
   setDialogueFilterPrompt,
   onSaveDialogue,
+  onUpdateDialogue,
+  userLifeContext,
   aiProvider
 }: {
   videos: SpaceVideo[];
@@ -588,7 +656,9 @@ function WatchPage({
   setDialogueFilters: React.Dispatch<React.SetStateAction<DialogueFilterResult[]>>;
   dialogueFilterPrompt: string;
   setDialogueFilterPrompt: (prompt: string) => void;
-  onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => void;
+  onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => string | undefined;
+  onUpdateDialogue: (dialogue: SavedDialogue) => void;
+  userLifeContext: string;
   aiProvider: AiProvider;
 }) {
   const [activeVideoId, setActiveVideoId] = React.useState(() => getLastWatchVideoId(videos));
@@ -603,6 +673,7 @@ function WatchPage({
   const [filteredDialogueIds, setFilteredDialogueIds] = React.useState<Set<string> | null>(null);
   const [filterLoading, setFilterLoading] = React.useState(false);
   const [filterStatus, setFilterStatus] = React.useState("");
+  const [activeSavedDialogueId, setActiveSavedDialogueId] = React.useState("");
   const playerFrameRef = React.useRef<HTMLDivElement | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const lineRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
@@ -624,6 +695,7 @@ function WatchPage({
       : activeVideo.transcript
     : [];
   const isDialogueFilterActive = Boolean(filteredDialogueIds);
+  const activeSavedDialogue = savedDialogues.find((dialogue) => dialogue.id === activeSavedDialogueId);
   const showExplorer = !activeVideo || explorerOpen;
 
   React.useEffect(() => {
@@ -846,6 +918,12 @@ function WatchPage({
     setFilterStatus("Prompt updated. Run the filter again.");
   }
 
+  function saveActiveDialogue() {
+    if (!activeVideo || !activeSegment) return;
+    const savedId = onSaveDialogue(activeVideo, activeSegment);
+    if (savedId) setActiveSavedDialogueId(savedId);
+  }
+
   return (
     <div className={`watch-grid ${showExplorer ? "" : "video-selected"}`}>
       {showExplorer ? (
@@ -987,10 +1065,35 @@ function WatchPage({
           <button className="ghost" onClick={() => setExplorerOpen(true)}>
             <Video size={16} /> All Videos
           </button>
-          <button onClick={() => activeSegment && onSaveDialogue(activeVideo, activeSegment)}>
+          <button onClick={saveActiveDialogue}>
             <Save size={16} /> Save Dialogue
           </button>
         </div>
+        {activeSavedDialogue ? (
+          <div className="watch-example-card">
+            <div className="section-head compact">
+              <h2>Your examples</h2>
+              <span>{activeSavedDialogue.lifeExamples?.length || 0} ideas</span>
+            </div>
+            <strong>{activeSavedDialogue.text}</strong>
+            {activeSavedDialogue.lifeExamples?.length ? (
+              <div className="life-example-list">
+                {activeSavedDialogue.lifeExamples.slice(0, 3).map((example, index) => (
+                  <p key={`${activeSavedDialogue.id}-life-${index}`}>{example}</p>
+                ))}
+              </div>
+            ) : userLifeContext.trim() ? (
+              <small>Generating personal-use ideas...</small>
+            ) : (
+              <small>Add your life context in Settings to get personal-use ideas.</small>
+            )}
+            <textarea
+              value={activeSavedDialogue.userExamples || ""}
+              onChange={(event) => onUpdateDialogue({ ...activeSavedDialogue, userExamples: event.target.value })}
+              placeholder="Write a few examples of how you would use this phrase in your own life..."
+            />
+          </div>
+        ) : null}
         {playbackStatus ? <span className="playback-status">{playbackStatus}</span> : null}
       </section>
 
@@ -1024,7 +1127,8 @@ function WatchPage({
               className={segment.id === activeSegment?.id ? "active" : ""}
               onClick={() => {
                 seekTo(segment);
-                onSaveDialogue(activeVideo, segment);
+                const savedId = onSaveDialogue(activeVideo, segment);
+                if (savedId) setActiveSavedDialogueId(savedId);
               }}
             >
               <small>{formatTime(segment.startTime)}</small>
@@ -1062,6 +1166,8 @@ function SettingsPage({
   savedDialogues,
   prompt,
   setPrompt,
+  userLifeContext,
+  setUserLifeContext,
   onUpdateDialogue,
   aiProvider,
   setAiProvider
@@ -1072,6 +1178,8 @@ function SettingsPage({
   savedDialogues: SavedDialogue[];
   prompt: string;
   setPrompt: (prompt: string) => void;
+  userLifeContext: string;
+  setUserLifeContext: (context: string) => void;
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
   aiProvider: AiProvider;
   setAiProvider: (provider: AiProvider) => void;
@@ -1082,6 +1190,12 @@ function SettingsPage({
   const [selectedDialogueId, setSelectedDialogueId] = React.useState(savedDialogues[0]?.id ?? "");
   const [processingId, setProcessingId] = React.useState("");
   const [status, setStatus] = React.useState("");
+  const [lifeContextDraft, setLifeContextDraft] = React.useState(userLifeContext);
+  const [lifeContextStatus, setLifeContextStatus] = React.useState("");
+
+  React.useEffect(() => {
+    setLifeContextDraft(userLifeContext);
+  }, [userLifeContext]);
 
   async function importSpace() {
     const spaceId = extractSpaceId(spaceUrl);
@@ -1163,6 +1277,31 @@ function SettingsPage({
       <section className="settings-card">
         <h1>Settings</h1>
         <p>SRT transcript overrides, prompt tools, and AI provider controls live here.</p>
+        <div className="life-context-card">
+          <div className="section-head compact">
+            <h2>Life context</h2>
+            <button
+              className="mini-action"
+              onClick={() => {
+                setUserLifeContext(lifeContextDraft.trim());
+                setLifeContextStatus("Saved for Watch recommendations.");
+              }}
+              title="Save life context"
+              aria-label="Save life context"
+            >
+              <Save size={15} />
+            </button>
+          </div>
+          <textarea
+            value={lifeContextDraft}
+            onChange={(event) => {
+              setLifeContextDraft(event.target.value);
+              setLifeContextStatus("");
+            }}
+            placeholder={defaultLifeContext}
+          />
+          <small>{lifeContextStatus || "Used by DeepSeek to suggest when this phrase fits your real life."}</small>
+        </div>
         <div className="ai-mode-card">
           <span>AI mode</span>
           <div className="ai-mode-toggle" role="group" aria-label="AI mode">
@@ -1453,6 +1592,11 @@ function GraphPage({
                     <b>English</b> {dialogue.english}
                   </span>
                 ) : null}
+                {dialogue.userExamples ? (
+                  <span className="translation-line">
+                    <b>My examples</b> {dialogue.userExamples}
+                  </span>
+                ) : null}
               </div>
               <div className="row-actions">
                 <button
@@ -1545,6 +1689,16 @@ function GraphPage({
               {formatTime(clipStart)} - {formatTime(clipEnd)}
             </small>
             <strong>{selectedDialogue.text}</strong>
+            {selectedDialogue.lifeExamples?.length ? (
+              <div className="library-life-examples">
+                {selectedDialogue.lifeExamples.slice(0, 3).map((example, index) => (
+                  <span key={`${selectedDialogue.id}-preview-life-${index}`}>{example}</span>
+                ))}
+              </div>
+            ) : null}
+            {selectedDialogue.userExamples ? (
+              <p>{selectedDialogue.userExamples}</p>
+            ) : null}
           </div>
         ) : null}
         <h2>Daily scores</h2>

@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   getDialogueFilterPayload,
+  getDialogueLifeExamplesPayload,
   getDialogueTransformPayload,
   getPracticeGradePayload,
   getReviewPayload,
@@ -47,6 +48,11 @@ app.post("/api/dialogue-transform", async (req, res) => {
 
 app.post("/api/dialogue-filter", async (req, res) => {
   const result = await getDialogueFilterPayload(req.body);
+  res.status(result.status).json(result.body);
+});
+
+app.post("/api/dialogue-life-examples", async (req, res) => {
+  const result = await getDialogueLifeExamplesPayload(req.body);
   res.status(result.status).json(result.body);
 });
 

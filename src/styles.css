@@ -994,6 +994,69 @@ button {
   font-weight: 900;
 }
 
+.watch-example-card {
+  display: grid;
+  gap: 10px;
+  flex: 0 0 auto;
+  max-height: 245px;
+  padding: 12px;
+  border: 2px solid #ffe08a;
+  border-radius: 16px;
+  background: #fff7d6;
+  overflow: auto;
+}
+
+.watch-example-card .section-head {
+  margin-bottom: 0;
+}
+
+.watch-example-card h2 {
+  margin: 0;
+  color: #7a4100;
+  font-size: 16px;
+}
+
+.watch-example-card strong {
+  color: #2d3b45;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.watch-example-card small {
+  color: #7a4100;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.life-example-list {
+  display: grid;
+  gap: 7px;
+}
+
+.life-example-list p {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 12px;
+  color: #5a3200;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.watch-example-card textarea {
+  min-height: 76px;
+  width: 100%;
+  padding: 10px;
+  border: 2px solid #ffd25f;
+  border-radius: 12px;
+  outline: none;
+  color: #2d3b45;
+  background: #ffffff;
+  font-weight: 850;
+  resize: vertical;
+}
+
 .transcript-card {
   grid-column: 3;
   grid-row: 1;
@@ -1351,6 +1414,30 @@ button {
   margin-top: 18px;
 }
 
+.life-context-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px;
+  border: 2px solid #c8efb3;
+  border-radius: 16px;
+  background: #f6fff0;
+}
+
+.life-context-card .section-head {
+  margin-bottom: 0;
+}
+
+.life-context-card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.life-context-card textarea {
+  height: 150px;
+  background: #ffffff;
+}
+
 .ai-mode-card > span {
   color: #2d3b45;
   font-size: 13px;
@@ -1633,6 +1720,31 @@ button {
   margin-top: 5px;
   color: #2d3b45;
   font-size: 14px;
+  line-height: 1.35;
+}
+
+.preview-dialogue p {
+  margin: 10px 0 0;
+  color: #52606d;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
+.library-life-examples {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.library-life-examples span {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 11px;
+  color: #3d5f20;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 850;
   line-height: 1.35;
 }
 

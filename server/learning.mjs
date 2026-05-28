@@ -202,6 +202,51 @@ export async function getDialogueFilterPayload(body = {}) {
   }
 }
 
+export async function getDialogueLifeExamplesPayload(body = {}) {
+  const dialogue = String(body.dialogue || "").trim();
+  const userLifeContext = String(body.userLifeContext || "").trim();
+
+  if (!dialogue) {
+    return { status: 400, body: { error: "dialogue is required" } };
+  }
+
+  try {
+    const data = await callDeepSeekJson(
+      [
+        "You are an English-learning coach for a Hindi/Hinglish speaker.",
+        "Create practical personal-use recommendations for a movie phrase.",
+        `Phrase/dialogue: ${dialogue}`,
+        `User life context: ${userLifeContext || "No personal context provided. Use general daily life."}`,
+        "Return JSON only with key: examples.",
+        "examples must be exactly 3 short strings.",
+        "Each example should say when, how, and in what situation the user can use the phrase in their own life.",
+        "Keep examples concrete, natural, and learner-friendly."
+      ].join("\n"),
+      900
+    );
+    const examples = Array.isArray(data?.examples)
+      ? data.examples.map(String).filter(Boolean).slice(0, 3)
+      : [];
+
+    return {
+      status: 200,
+      body: {
+        examples: examples.length ? examples : fallbackLifeExamples(dialogue),
+        source: "deepseek"
+      }
+    };
+  } catch (error) {
+    console.error("Life examples failed", error);
+    return {
+      status: 200,
+      body: {
+        examples: fallbackLifeExamples(dialogue),
+        source: "fallback"
+      }
+    };
+  }
+}
+
 export async function getYoulearnChatPayload(body = {}) {
   const { dialogue, videoTitle, contentId, videoId, spaceId, startTime, transcript = [], provider } = body;
   const selectedDialogue = String(dialogue || "").trim();
@@ -592,6 +637,15 @@ function fallbackDialogueTransform(dialogue, mode) {
     hinglish,
     notes: "Fallback used because DeepSeek is not configured."
   };
+}
+
+function fallbackLifeExamples(dialogue) {
+  const text = String(dialogue || "this phrase");
+  return [
+    `Use it when a friend asks for your honest reaction and this phrase matches what you want to say: "${text}".`,
+    `Use it at work or study when a similar situation comes up and you need a short, natural English line.`,
+    `Use it in a daily conversation when you want to express the same feeling without making the sentence too formal.`
+  ];
 }
 
 function normalizeFilterTranscript(value) {
