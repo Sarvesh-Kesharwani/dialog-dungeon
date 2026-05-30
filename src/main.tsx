@@ -19,7 +19,9 @@ import {
   Pause,
   Play,
   Plus,
+  RotateCcw,
   Save,
+  Square,
   Send,
   Settings,
   SlidersHorizontal,
@@ -80,6 +82,12 @@ type SavedDialogue = {
   missCount: number;
   lastPracticed?: string;
   createdAt: string;
+};
+
+type SaveDialogueDetails = {
+  userExamples?: string;
+  lifeExamples?: string[];
+  lifeContextSnapshot?: string;
 };
 
 type DialogueFilterResult = {
@@ -343,12 +351,25 @@ function App() {
     return () => window.clearTimeout(timeout);
   }, [aiProvider, clientId, videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext]);
 
-  function saveDialogue(video: SpaceVideo, segment: TranscriptSegment) {
+  function saveDialogue(video: SpaceVideo, segment: TranscriptSegment, details: SaveDialogueDetails = {}) {
     const existing = savedDialogues.find(
       (item) => item.videoId === video.id && item.startTime === segment.startTime && item.text === segment.text
     );
     if (existing) {
-      if (!existing.lifeExamples?.length || existing.lifeContextSnapshot !== userLifeContext) {
+      if (details.userExamples !== undefined || details.lifeExamples) {
+        setSavedDialogues((current) =>
+          current.map((item) =>
+            item.id === existing.id
+              ? {
+                  ...item,
+                  userExamples: details.userExamples ?? item.userExamples,
+                  lifeExamples: details.lifeExamples ?? item.lifeExamples,
+                  lifeContextSnapshot: details.lifeContextSnapshot ?? item.lifeContextSnapshot
+                }
+              : item
+          )
+        );
+      } else if (!existing.lifeExamples?.length || existing.lifeContextSnapshot !== userLifeContext) {
         fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
           setSavedDialogues((current) =>
             current.map((item) =>
@@ -361,6 +382,7 @@ function App() {
     }
     const id = `${Date.now()}-${segment.id}`;
     const fallback = fallbackSavedTranslation(segment.text);
+    const lifeExamples = details.lifeExamples ?? fallbackLifeExamples(segment.text);
     setSavedDialogues((current) => [
       {
         id,
@@ -369,9 +391,9 @@ function App() {
         videoUrl: video.contentUrl,
         startTime: segment.startTime,
         text: segment.text,
-        userExamples: "",
-        lifeExamples: fallbackLifeExamples(segment.text),
-        lifeContextSnapshot: userLifeContext,
+        userExamples: details.userExamples ?? "",
+        lifeExamples,
+        lifeContextSnapshot: details.lifeContextSnapshot ?? userLifeContext,
         promptResult: fallback.hinglish,
         hinglish: fallback.hinglish,
         english: fallback.english,
@@ -387,7 +409,7 @@ function App() {
         current.map((item) => (item.id === id ? { ...item, ...translation } : item))
       );
     });
-    fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
+    if (!details.lifeExamples) fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
       setSavedDialogues((current) =>
         current.map((item) =>
           item.id === id ? { ...item, lifeExamples, lifeContextSnapshot: userLifeContext } : item
@@ -656,7 +678,7 @@ function WatchPage({
   setDialogueFilters: React.Dispatch<React.SetStateAction<DialogueFilterResult[]>>;
   dialogueFilterPrompt: string;
   setDialogueFilterPrompt: (prompt: string) => void;
-  onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment) => string | undefined;
+  onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment, details?: SaveDialogueDetails) => string | undefined;
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
   userLifeContext: string;
   aiProvider: AiProvider;
@@ -673,7 +695,15 @@ function WatchPage({
   const [filteredDialogueIds, setFilteredDialogueIds] = React.useState<Set<string> | null>(null);
   const [filterLoading, setFilterLoading] = React.useState(false);
   const [filterStatus, setFilterStatus] = React.useState("");
-  const [activeSavedDialogueId, setActiveSavedDialogueId] = React.useState("");
+  const [pendingDialogue, setPendingDialogue] = React.useState<{
+    segment: TranscriptSegment;
+    lifeExamples: string[];
+    loading: boolean;
+  } | null>(null);
+  const [exampleDraft, setExampleDraft] = React.useState("");
+  const [exampleStatus, setExampleStatus] = React.useState("");
+  const [loopSegment, setLoopSegment] = React.useState<TranscriptSegment | null>(null);
+  const loopTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const playerFrameRef = React.useRef<HTMLDivElement | null>(null);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const lineRefs = React.useRef<Record<string, HTMLButtonElement | null>>({});
@@ -695,7 +725,6 @@ function WatchPage({
       : activeVideo.transcript
     : [];
   const isDialogueFilterActive = Boolean(filteredDialogueIds);
-  const activeSavedDialogue = savedDialogues.find((dialogue) => dialogue.id === activeSavedDialogueId);
   const showExplorer = !activeVideo || explorerOpen;
 
   React.useEffect(() => {
@@ -713,6 +742,38 @@ function WatchPage({
     }
   }, [activeSegment?.id]);
 
+  // Segment loop: play the segment repeatedly with a 1-second gap between repeats
+  React.useEffect(() => {
+    if (!loopSegment || !videoRef.current) return;
+
+    const video = videoRef.current;
+    const start = loopSegment.startTime;
+    const end = loopSegment.endTime ?? start + 5;
+
+    function playLoop() {
+      if (!video) return;
+      video.currentTime = start;
+      video.play().catch(() => undefined);
+    }
+
+    function onTimeUpdate() {
+      if (!video) return;
+      if (video.currentTime >= end) {
+        video.pause();
+        if (loopTimeoutRef.current) clearTimeout(loopTimeoutRef.current);
+        loopTimeoutRef.current = setTimeout(playLoop, 1000);
+      }
+    }
+
+    video.addEventListener("timeupdate", onTimeUpdate);
+    playLoop();
+
+    return () => {
+      video.removeEventListener("timeupdate", onTimeUpdate);
+      if (loopTimeoutRef.current) clearTimeout(loopTimeoutRef.current);
+    };
+  }, [loopSegment]);
+
   React.useEffect(() => {
     if (!activeVideo) return;
     localStorage.setItem(lastVideoKey, activeVideo.id);
@@ -727,6 +788,10 @@ function WatchPage({
     setDialogueTranslation(null);
     setFilteredDialogueIds(null);
     setFilterStatus("");
+    setPendingDialogue(null);
+    setExampleDraft("");
+    setExampleStatus("");
+    setLoopSegment(null);
   }, [activeVideo?.id]);
 
   React.useEffect(() => {
@@ -918,10 +983,38 @@ function WatchPage({
     setFilterStatus("Prompt updated. Run the filter again.");
   }
 
-  function saveActiveDialogue() {
+  function openDialogueSaveDraft() {
     if (!activeVideo || !activeSegment) return;
-    const savedId = onSaveDialogue(activeVideo, activeSegment);
-    if (savedId) setActiveSavedDialogueId(savedId);
+    const existing = savedDialogues.find(
+      (item) => item.videoId === activeVideo.id && item.startTime === activeSegment.startTime && item.text === activeSegment.text
+    );
+    const fallbackExamples = existing?.lifeExamples?.length ? existing.lifeExamples : fallbackLifeExamples(activeSegment.text);
+    setPendingDialogue({
+      segment: activeSegment,
+      lifeExamples: fallbackExamples,
+      loading: true
+    });
+    setExampleDraft(existing?.userExamples || "");
+    setExampleStatus("");
+    fetchLifeExamples(activeSegment.text, userLifeContext).then((lifeExamples) => {
+      setPendingDialogue((current) =>
+        current && current.segment.id === activeSegment.id
+          ? { ...current, lifeExamples, loading: false }
+          : current
+      );
+    });
+  }
+
+  function savePendingDialogueToLibrary() {
+    if (!activeVideo || !pendingDialogue) return;
+    onSaveDialogue(activeVideo, pendingDialogue.segment, {
+      userExamples: exampleDraft.trim(),
+      lifeExamples: pendingDialogue.lifeExamples,
+      lifeContextSnapshot: userLifeContext
+    });
+    setPendingDialogue(null);
+    setExampleDraft("");
+    setExampleStatus("");
   }
 
   return (
@@ -1065,33 +1158,54 @@ function WatchPage({
           <button className="ghost" onClick={() => setExplorerOpen(true)}>
             <Video size={16} /> All Videos
           </button>
-          <button onClick={saveActiveDialogue}>
+          <button onClick={() => { openDialogueSaveDraft(); if (activeSegment) setLoopSegment(activeSegment); }}>
             <Save size={16} /> Save Dialogue
           </button>
+          {loopSegment ? (
+            <button
+              title="Stop loop"
+              aria-label="Stop loop"
+              onClick={() => { setLoopSegment(null); videoRef.current?.pause(); }}
+            >
+              <Square size={16} /> Stop Loop
+            </button>
+          ) : (
+            <button
+              title="Loop current dialogue"
+              aria-label="Loop current dialogue"
+              disabled={!activeSegment || isYouTube}
+              onClick={() => { if (activeSegment) setLoopSegment(activeSegment); }}
+            >
+              <RotateCcw size={16} /> Loop
+            </button>
+          )}
         </div>
-        {activeSavedDialogue ? (
+        {pendingDialogue ? (
           <div className="watch-example-card">
             <div className="section-head compact">
-              <h2>Your examples</h2>
-              <span>{activeSavedDialogue.lifeExamples?.length || 0} ideas</span>
+              <h2>Recommendations</h2>
+              <span>{pendingDialogue.loading ? "loading" : `${pendingDialogue.lifeExamples.length} ideas`}</span>
             </div>
-            <strong>{activeSavedDialogue.text}</strong>
-            {activeSavedDialogue.lifeExamples?.length ? (
-              <div className="life-example-list">
-                {activeSavedDialogue.lifeExamples.slice(0, 3).map((example, index) => (
-                  <p key={`${activeSavedDialogue.id}-life-${index}`}>{example}</p>
-                ))}
-              </div>
-            ) : userLifeContext.trim() ? (
-              <small>Generating personal-use ideas...</small>
-            ) : (
-              <small>Add your life context in Settings to get personal-use ideas.</small>
-            )}
+            <strong>{pendingDialogue.segment.text}</strong>
+            <div className="life-example-list">
+              {pendingDialogue.lifeExamples.slice(0, 3).map((example, index) => (
+                <p key={`${pendingDialogue.segment.id}-life-${index}`}>{example}</p>
+              ))}
+            </div>
             <textarea
-              value={activeSavedDialogue.userExamples || ""}
-              onChange={(event) => onUpdateDialogue({ ...activeSavedDialogue, userExamples: event.target.value })}
+              value={exampleDraft}
+              onChange={(event) => {
+                setExampleDraft(event.target.value);
+                setExampleStatus("");
+              }}
               placeholder="Write a few examples of how you would use this phrase in your own life..."
             />
+            <div className="example-actions single-action">
+              <button className="primary single" onClick={savePendingDialogueToLibrary}>
+                <Save size={15} /> Save dialogue to library
+              </button>
+            </div>
+            {exampleStatus ? <small className="example-status">{exampleStatus}</small> : null}
           </div>
         ) : null}
         {playbackStatus ? <span className="playback-status">{playbackStatus}</span> : null}
@@ -1126,10 +1240,14 @@ function WatchPage({
               }}
               className={segment.id === activeSegment?.id ? "active" : ""}
               onClick={() => {
-                seekTo(segment);
-                const savedId = onSaveDialogue(activeVideo, segment);
-                if (savedId) setActiveSavedDialogueId(savedId);
-              }}
+                 setLoopSegment(null);
+                 if (loopTimeoutRef.current) clearTimeout(loopTimeoutRef.current);
+                 seekTo(segment);
+                 videoRef.current?.pause();
+                 setPendingDialogue(null);
+                 setExampleDraft("");
+                 setExampleStatus("");
+                }}
             >
               <small>{formatTime(segment.startTime)}</small>
               <span>{segment.text}</span>
@@ -1875,4 +1993,12 @@ function toHinglishHint(text: string) {
   return `Hinglish hint: "${text}" ko natural English mein likho.`;
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<App />);
+type DialogDungeonWindow = Window & {
+  dialogDungeonRoot?: ReturnType<typeof ReactDOM.createRoot>;
+};
+
+const rootElement = document.getElementById("root")!;
+const appWindow = window as DialogDungeonWindow;
+const root = appWindow.dialogDungeonRoot ?? ReactDOM.createRoot(rootElement);
+appWindow.dialogDungeonRoot = root;
+root.render(<App />);

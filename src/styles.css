@@ -996,9 +996,9 @@ button {
 
 .watch-example-card {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
-  max-height: 245px;
+  max-height: 290px;
   padding: 12px;
   border: 2px solid #ffe08a;
   border-radius: 16px;
@@ -1035,7 +1035,7 @@ button {
 
 .life-example-list p {
   margin: 0;
-  padding: 8px 10px;
+  padding: 6px 9px;
   border-radius: 12px;
   color: #5a3200;
   background: rgba(255, 255, 255, 0.72);
@@ -1045,7 +1045,7 @@ button {
 }
 
 .watch-example-card textarea {
-  min-height: 76px;
+  min-height: 58px;
   width: 100%;
   padding: 10px;
   border: 2px solid #ffd25f;
@@ -1055,6 +1055,43 @@ button {
   background: #ffffff;
   font-weight: 850;
   resize: vertical;
+}
+
+.example-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: 8px;
+}
+
+.example-actions.single-action {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.example-actions button {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 10px;
+  color: #7a4100;
+  background: #ffffff;
+  border-bottom: 4px solid #ffd25f;
+  font-size: 12px;
+  font-weight: 950;
+  line-height: 1.1;
+}
+
+.example-actions button.primary {
+  color: #ffffff;
+  background: var(--duo-green);
+  border-bottom-color: var(--duo-green-dark);
+}
+
+.example-status {
+  color: #2f7a28 !important;
 }
 
 .transcript-card {
