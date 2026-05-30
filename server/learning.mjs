@@ -205,22 +205,47 @@ export async function getDialogueFilterPayload(body = {}) {
 export async function getDialogueLifeExamplesPayload(body = {}) {
   const dialogue = String(body.dialogue || "").trim();
   const userLifeContext = String(body.userLifeContext || "").trim();
+  const notionContextUrl = String(body.notionContextUrl || "").trim();
 
   if (!dialogue) {
     return { status: 400, body: { error: "dialogue is required" } };
   }
 
+  // Fetch Notion page content if a URL is provided
+  let notionContext = "";
+  if (notionContextUrl) {
+    notionContext = await fetchNotionPageText(notionContextUrl);
+  }
+
+  const combinedContext = [
+    userLifeContext,
+    notionContext ? `Notion page about user: ${notionContext}` : ""
+  ].filter(Boolean).join("\n\n");
+
   try {
     const data = await callDeepSeekJson(
       [
         "You are an English-learning coach for a Hindi/Hinglish speaker.",
-        "Create practical personal-use recommendations for a movie phrase.",
-        `Phrase/dialogue: ${dialogue}`,
-        `User life context: ${userLifeContext || "No personal context provided. Use general daily life."}`,
+        "Your goal: help the user understand how to USE a movie phrase in their OWN real life.",
+        "",
+        "STEP 1 — Deconstruct the phrase:",
+        `  Phrase: "${dialogue}"`,
+        "  Identify the underlying pattern/structure (e.g. 'ease off the X' = reduce/stop doing X gradually).",
+        "  Ignore the specific subject (booze, drugs, etc.) — focus on the transferable pattern.",
+        "",
+        "STEP 2 — Map to user's actual life:",
+        `  User context: ${combinedContext || "No personal context provided. Use general daily life activities like work, study, phone use, social media, sleep, etc."}`,
+        "  Pick 3 real situations from the user's life where the SAME pattern applies.",
+        "  Substitute the original subject with something from the user's actual life.",
+        "  Example: 'ease off the booze' → 'ease off the doomscrolling a little' or 'ease off the late-night coding sessions'.",
+        "",
+        "STEP 3 — Write 3 short example sentences:",
+        "  Each sentence should be a natural English sentence the user could actually say.",
+        "  Format: just the sentence itself, no explanation.",
+        "  Keep each sentence under 12 words.",
+        "",
         "Return JSON only with key: examples.",
-        "examples must be exactly 3 short strings.",
-        "Each example should say when, how, and in what situation the user can use the phrase in their own life.",
-        "Keep examples concrete, natural, and learner-friendly."
+        "examples must be an array of exactly 3 strings (the sentences from STEP 3)."
       ].join("\n"),
       900
     );
@@ -751,6 +776,36 @@ function supabaseHeaders(key, clientId) {
 function normalizeClientId(value) {
   const clientId = String(value || "").trim();
   return /^[A-Za-z0-9_-]{12,80}$/.test(clientId) ? clientId : "";
+}
+
+async function fetchNotionPageText(url) {
+  try {
+    // Notion public pages are readable as HTML — fetch and strip tags
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "DialogDungeon/0.2 learning app",
+        Accept: "text/html"
+      },
+      signal: AbortSignal.timeout(6000)
+    });
+    if (!response.ok) return "";
+    const html = await response.text();
+    // Strip script/style blocks, then all tags, then collapse whitespace
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+    // Return first 2000 chars to stay within token budget
+    return text.slice(0, 2000);
+  } catch {
+    return "";
+  }
 }
 
 async function fetchSceneContext(movie, scene) {

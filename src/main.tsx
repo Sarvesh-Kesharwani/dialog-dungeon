@@ -121,6 +121,7 @@ type AppState = {
   prompt: string;
   dialogueFilterPrompt?: string;
   userLifeContext?: string;
+  notionContextUrl?: string;
   aiProvider?: AiProvider;
   updatedAt: string;
 };
@@ -226,14 +227,15 @@ function fallbackLifeExamples(text: string) {
   ];
 }
 
-async function fetchLifeExamples(text: string, userLifeContext: string) {
+async function fetchLifeExamples(text: string, userLifeContext: string, notionContextUrl = "") {
   try {
     const response = await fetch("/api/dialogue-life-examples", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         dialogue: text,
-        userLifeContext
+        userLifeContext,
+        notionContextUrl
       })
     });
     const data = await response.json();
@@ -276,6 +278,9 @@ function App() {
   const [userLifeContext, setUserLifeContext] = React.useState(
     () => localStorage.getItem("dialogdungeon-user-life-context") || ""
   );
+  const [notionContextUrl, setNotionContextUrl] = React.useState(
+    () => localStorage.getItem("dialogdungeon-notion-context-url") || ""
+  );
   const [aiProvider, setAiProvider] = React.useState<AiProvider>(() => normalizeAiProvider(localStorage.getItem("dialogdungeon-ai-provider")));
   const [syncStatus, setSyncStatus] = React.useState("Local");
   const cloudLoaded = React.useRef(false);
@@ -289,8 +294,9 @@ function App() {
     localStorage.setItem("dialogdungeon-prompt", prompt);
     localStorage.setItem("dialogdungeon-dialogue-filter-prompt", dialogueFilterPrompt);
     localStorage.setItem("dialogdungeon-user-life-context", userLifeContext);
+    localStorage.setItem("dialogdungeon-notion-context-url", notionContextUrl);
     localStorage.setItem("dialogdungeon-ai-provider", aiProvider);
-  }, [videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext, aiProvider]);
+  }, [videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext, notionContextUrl, aiProvider]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -308,6 +314,7 @@ function App() {
           if (cloud.prompt) setPrompt(cloud.prompt);
           if (cloud.dialogueFilterPrompt) setDialogueFilterPrompt(cloud.dialogueFilterPrompt);
           if (typeof cloud.userLifeContext === "string") setUserLifeContext(cloud.userLifeContext);
+          if (typeof cloud.notionContextUrl === "string") setNotionContextUrl(cloud.notionContextUrl);
           if (cloud.aiProvider) setAiProvider(normalizeAiProvider(cloud.aiProvider));
         }
         setSyncStatus(data?.source === "supabase" ? "Synced" : "Local");
@@ -336,6 +343,7 @@ function App() {
         prompt,
         dialogueFilterPrompt,
         userLifeContext,
+        notionContextUrl,
         aiProvider,
         updatedAt: new Date().toISOString()
       };
@@ -349,7 +357,7 @@ function App() {
         .catch(() => setSyncStatus("Local"));
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [aiProvider, clientId, videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext]);
+  }, [aiProvider, clientId, videos, folders, savedDialogues, dialogueFilters, scores, prompt, dialogueFilterPrompt, userLifeContext, notionContextUrl]);
 
   function saveDialogue(video: SpaceVideo, segment: TranscriptSegment, details: SaveDialogueDetails = {}) {
     const existing = savedDialogues.find(
@@ -370,7 +378,7 @@ function App() {
           )
         );
       } else if (!existing.lifeExamples?.length || existing.lifeContextSnapshot !== userLifeContext) {
-        fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
+        fetchLifeExamples(segment.text, userLifeContext, notionContextUrl).then((lifeExamples) => {
           setSavedDialogues((current) =>
             current.map((item) =>
               item.id === existing.id ? { ...item, lifeExamples, lifeContextSnapshot: userLifeContext } : item
@@ -409,7 +417,7 @@ function App() {
         current.map((item) => (item.id === id ? { ...item, ...translation } : item))
       );
     });
-    if (!details.lifeExamples) fetchLifeExamples(segment.text, userLifeContext).then((lifeExamples) => {
+    if (!details.lifeExamples) fetchLifeExamples(segment.text, userLifeContext, notionContextUrl).then((lifeExamples) => {
       setSavedDialogues((current) =>
         current.map((item) =>
           item.id === id ? { ...item, lifeExamples, lifeContextSnapshot: userLifeContext } : item
@@ -475,6 +483,7 @@ function App() {
               onSaveDialogue={saveDialogue}
               onUpdateDialogue={updateDialogue}
               userLifeContext={userLifeContext}
+              notionContextUrl={notionContextUrl}
               aiProvider={aiProvider}
             />
           ) : null}
@@ -501,6 +510,8 @@ function App() {
               setPrompt={setPrompt}
               userLifeContext={userLifeContext}
               setUserLifeContext={setUserLifeContext}
+              notionContextUrl={notionContextUrl}
+              setNotionContextUrl={setNotionContextUrl}
               onUpdateDialogue={updateDialogue}
               aiProvider={aiProvider}
               setAiProvider={setAiProvider}
@@ -667,6 +678,7 @@ function WatchPage({
   onSaveDialogue,
   onUpdateDialogue,
   userLifeContext,
+  notionContextUrl,
   aiProvider
 }: {
   videos: SpaceVideo[];
@@ -681,6 +693,7 @@ function WatchPage({
   onSaveDialogue: (video: SpaceVideo, segment: TranscriptSegment, details?: SaveDialogueDetails) => string | undefined;
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
   userLifeContext: string;
+  notionContextUrl: string;
   aiProvider: AiProvider;
 }) {
   const [activeVideoId, setActiveVideoId] = React.useState(() => getLastWatchVideoId(videos));
@@ -996,7 +1009,7 @@ function WatchPage({
     });
     setExampleDraft(existing?.userExamples || "");
     setExampleStatus("");
-    fetchLifeExamples(activeSegment.text, userLifeContext).then((lifeExamples) => {
+    fetchLifeExamples(activeSegment.text, userLifeContext, notionContextUrl).then((lifeExamples) => {
       setPendingDialogue((current) =>
         current && current.segment.id === activeSegment.id
           ? { ...current, lifeExamples, loading: false }
@@ -1286,6 +1299,8 @@ function SettingsPage({
   setPrompt,
   userLifeContext,
   setUserLifeContext,
+  notionContextUrl,
+  setNotionContextUrl,
   onUpdateDialogue,
   aiProvider,
   setAiProvider
@@ -1298,6 +1313,8 @@ function SettingsPage({
   setPrompt: (prompt: string) => void;
   userLifeContext: string;
   setUserLifeContext: (context: string) => void;
+  notionContextUrl: string;
+  setNotionContextUrl: (url: string) => void;
   onUpdateDialogue: (dialogue: SavedDialogue) => void;
   aiProvider: AiProvider;
   setAiProvider: (provider: AiProvider) => void;
@@ -1310,6 +1327,11 @@ function SettingsPage({
   const [status, setStatus] = React.useState("");
   const [lifeContextDraft, setLifeContextDraft] = React.useState(userLifeContext);
   const [lifeContextStatus, setLifeContextStatus] = React.useState("");
+  const [notionUrlDraft, setNotionUrlDraft] = React.useState(notionContextUrl);
+
+  React.useEffect(() => {
+    setNotionUrlDraft(notionContextUrl);
+  }, [notionContextUrl]);
 
   React.useEffect(() => {
     setLifeContextDraft(userLifeContext);
@@ -1402,6 +1424,7 @@ function SettingsPage({
               className="mini-action"
               onClick={() => {
                 setUserLifeContext(lifeContextDraft.trim());
+                setNotionContextUrl(notionUrlDraft.trim());
                 setLifeContextStatus("Saved for Watch recommendations.");
               }}
               title="Save life context"
@@ -1419,6 +1442,17 @@ function SettingsPage({
             placeholder={defaultLifeContext}
           />
           <small>{lifeContextStatus || "Used by DeepSeek to suggest when this phrase fits your real life."}</small>
+          <div className="notion-url-row">
+            <Link size={14} />
+            <input
+              type="url"
+              value={notionUrlDraft}
+              onChange={(event) => { setNotionUrlDraft(event.target.value); setLifeContextStatus(""); }}
+              onBlur={() => { setNotionContextUrl(notionUrlDraft.trim()); }}
+              placeholder="Notion page URL with your personal context (optional)"
+            />
+          </div>
+          <small>If set, DeepSeek will read your Notion page for richer, personalised examples.</small>
         </div>
         <div className="ai-mode-card">
           <span>AI mode</span>
